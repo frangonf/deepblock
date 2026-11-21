@@ -154,6 +154,7 @@ jobs:
       - name: Install locked tools and dependencies
         run: |
           mise install --locked node pnpm rust mr-boxington shellcheck
+          mise exec -- rustup component add rust-docs
           pnpm install --frozen-lockfile
       - name: Install browser system dependencies
         timeout-minutes: 8
@@ -174,5 +175,5 @@ jobs:
         run: |
           mise run lint:scripts
           mise run test:scripts
-          mise run licenses:check
+          mise run licenses:bundle
           mise run version:check

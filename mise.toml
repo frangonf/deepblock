@@ -192,6 +192,10 @@ run = "node scripts/licenses.ts check"
 description = "Regenerate THIRD-PARTY-NOTICES.md from locked dependencies"
 run = "node scripts/licenses.ts generate"
 
+[tasks."licenses:bundle"]
+description = "Verify and collect upstream license texts for distribution"
+run = "node scripts/licenses.ts distribution"
+
 [tasks."version:check"]
 description = "Check product manifest and lockfile version agreement"
 run = "node scripts/release.ts check"

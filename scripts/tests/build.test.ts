@@ -19,20 +19,26 @@ test('aggregate build covers the desktop through the workspace without a second 
 });
 
 const target = 'aarch64-apple-darwin';
+const upstreamTerms = 'example crate\nCopyright the upstream authors\nPermission is hereby granted…\n';
+const appNotice = 'bundle/macos/DeepBlock.app/Contents/Resources/resources/bin/THIRD-PARTY-LICENSES.txt';
 
-function fixture() {
+function fixture(buildTarget = target) {
   const root = mkdtempSync(path.join(tmpdir(), 'deepblock-build-'));
   for (const dir of ['scripts', 'bin', 'docs', 'apps/desktop/ui', 'apps/desktop/src-tauri']) mkdirSync(path.join(root, dir), { recursive: true });
-  for (const file of ['build.ts', 'release-core.ts']) copyFileSync(new URL(`../${file}`, import.meta.url), path.join(root, 'scripts', file));
+  for (const file of ['build.ts', 'debian.ts', 'release-core.ts']) copyFileSync(new URL(`../${file}`, import.meta.url), path.join(root, 'scripts', file));
   symlinkSync(path.resolve(import.meta.dirname, '../../node_modules'), path.join(root, 'node_modules'), 'dir');
   writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
   writeFileSync(path.join(root, 'Cargo.toml'), '[workspace.package]\nversion = "0.2.0"\n');
   writeFileSync(path.join(root, 'Cargo.lock'), ['deepblock-cli', 'deepblock-server', 'deepblock-desktop'].map((name) => `[[package]]\nname = "${name}"\nversion = "0.2.0"\n`).join('\n'));
   for (const file of ['apps/desktop/ui/package.json', 'apps/desktop/src-tauri/tauri.conf.json']) writeFileSync(path.join(root, file), '{"version":"0.2.0"}');
   for (const file of ['LICENSE', 'docs/releases.md', 'docs/linux-development.md']) writeFileSync(path.join(root, file), `Source snapshot: ${file}\n`);
-  const binaries = path.join(root, 'custom-target', target, 'release');
+  mkdirSync(path.join(root, 'dist/licenses'), { recursive: true });
+  writeFileSync(path.join(root, 'dist/licenses/THIRD-PARTY-LICENSES.txt'), upstreamTerms);
+  const binaries = path.join(root, 'custom-target', buildTarget, 'release');
   const app = path.join(binaries, 'bundle/macos/DeepBlock.app');
   mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
+  mkdirSync(path.dirname(path.join(binaries, appNotice)), { recursive: true });
+  writeFileSync(path.join(binaries, appNotice), upstreamTerms);
   mkdirSync(path.join(binaries, 'bundle/dmg'), { recursive: true });
   for (const file of ['deepb', 'deepblock-server', 'bundle/macos/DeepBlock.app/Contents/MacOS/deepblock-desktop']) writeFileSync(path.join(binaries, file), 'arm64');
   writeFileSync(path.join(binaries, 'bundle/dmg/DeepBlock.dmg'), 'DMG fixture');
@@ -42,10 +48,10 @@ function fixture() {
   const tool = path.join(root, 'bin/tool.mjs');
   writeFileSync(tool, `#!${process.execPath}
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 switch (path.basename(process.argv[1])) {
-  case 'rustc': console.log('host: ${target}'); break;
+  case 'rustc': console.log('host: ${buildTarget}'); break;
   case 'cargo':
     if (args[0] === 'metadata') console.log(JSON.stringify({ target_directory: process.env.TEST_TARGET_DIRECTORY }));
     break;
@@ -62,15 +68,31 @@ switch (path.basename(process.argv[1])) {
       console.error('Invalid standalone signature'); process.exit(1);
     }
     break;
+  case 'hdiutil':
+    if (args[0] === 'attach') {
+      const mount = args[args.indexOf('-mountpoint') + 1];
+      cpSync(path.join(path.dirname(args.at(-1)), '../macos/DeepBlock.app'), path.join(mount, 'DeepBlock.app'), { recursive: true });
+      if (process.env.TEST_DMG_NOTICE) writeFileSync(path.join(mount, 'DeepBlock.app/Contents/Resources/resources/bin/THIRD-PARTY-LICENSES.txt'), process.env.TEST_DMG_NOTICE);
+    } else if (args[0] === 'detach') {
+      const marker = path.join(args[1], 'busy-before-retry');
+      if (process.env.TEST_DMG_BUSY && !existsSync(marker)) {
+        writeFileSync(marker, 'first detach attempt');
+        process.exit(16);
+      }
+      rmSync(marker, { force: true });
+      rmSync(path.join(args[1], 'DeepBlock.app'), { recursive: true });
+    } else throw new Error('Unexpected hdiutil argument');
+    break;
+  case 'dpkg-shlibdeps': console.log('shlibs:Depends=libc6'); break;
   default: throw new Error('Unexpected tool');
 }
 `);
   chmodSync(tool, 0o755);
-  for (const name of ['rustc', 'cargo', 'lipo', 'codesign']) symlinkSync(tool, path.join(root, 'bin', name));
+  for (const name of ['rustc', 'cargo', 'lipo', 'codesign', 'hdiutil', 'dpkg-shlibdeps']) symlinkSync(tool, path.join(root, 'bin', name));
   const run = (command = 'collect', script = path.join(root, 'scripts/build.ts'), extraEnv: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, [script, command], {
     cwd: root, encoding: 'utf8', env: {
       ...process.env, PATH: `${path.join(root, 'bin')}${path.delimiter}${process.env.PATH}`,
-      DEEPBLOCK_BUILD_TARGET: target, CARGO_BUILD_TARGET: undefined, TAURI_ENV_TARGET_TRIPLE: undefined,
+      DEEPBLOCK_BUILD_TARGET: buildTarget, CARGO_BUILD_TARGET: undefined, TAURI_ENV_TARGET_TRIPLE: undefined,
       DEEPBLOCK_RELEASE_DIR: undefined, DEEPBLOCK_SOURCE_DIR: undefined, DEEPBLOCK_SIGNING: 'adhoc',
       DEEPBLOCK_BUNDLE_AW: undefined, TEST_VERIFY_FAIL: undefined, TEST_TARGET_DIRECTORY: path.join(root, 'custom-target'), ...extraEnv,
     },
@@ -90,7 +112,40 @@ test('macOS collection accepts Xcode lipo syntax and packages the selected targe
       'deepblock_0.2.0_aarch64-apple-darwin.dmg',
     ]);
     const contents = execFileSync('tar', ['-tzf', path.join(output, 'deepblock-tools_0.2.0_aarch64-apple-darwin.tar.gz')], { encoding: 'utf8' });
-    assert.deepEqual(contents.trim().split('\n'), ['deepb', 'deepblock-server', 'LICENSE', 'docs/releases.md', 'docs/linux-development.md']);
+    assert.deepEqual(contents.trim().split('\n'), ['deepb', 'deepblock-server', 'LICENSE', 'docs/releases.md', 'docs/linux-development.md', 'THIRD-PARTY-LICENSES.txt']);
+    const upstream = execFileSync('tar', ['-xOzf', path.join(output, 'deepblock-tools_0.2.0_aarch64-apple-darwin.tar.gz'), 'THIRD-PARTY-LICENSES.txt'], { encoding: 'utf8' });
+    assert.equal(upstream, upstreamTerms);
+    const appArchive = path.join(output, 'deepblock_0.2.0_aarch64-apple-darwin.app.tar.gz');
+    const archivedAppNotice = appNotice.replace('bundle/macos/', '');
+    assert.equal(execFileSync('tar', ['-xOzf', appArchive, archivedAppNotice], { encoding: 'utf8' }), upstreamTerms);
+  } finally { cleanup(); }
+});
+
+test('desktop resource staging copies the upstream license texts', () => {
+  const { root, run, cleanup } = fixture();
+  try {
+    const result = run('stage');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(path.join(root, 'apps/desktop/src-tauri/resources/bin/THIRD-PARTY-LICENSES.txt'), 'utf8'), upstreamTerms);
+  } finally { cleanup(); }
+});
+
+test('collection refuses a stale copy of the notices inside the packaged DMG', () => {
+  const { root, run, cleanup } = fixture();
+  try {
+    const result = run('collect', undefined, { TEST_DMG_NOTICE: 'stale notices' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Missing or mismatched third-party license texts/);
+    assert.deepEqual(readdirSync(path.join(root, 'dist/release')), []);
+  } finally { cleanup(); }
+});
+
+test('collection retries a temporarily busy DMG without losing the verified packages', () => {
+  const { root, run, cleanup } = fixture();
+  try {
+    const result = run('collect', undefined, { TEST_DMG_BUSY: '1' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readdirSync(path.join(root, 'dist/release')).length, 3);
   } finally { cleanup(); }
 });
 
@@ -145,6 +200,19 @@ test('collection refuses an invalid standalone tool signature before creating ar
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Invalid standalone signature/);
     assert.deepEqual(readdirSync(path.join(root, 'dist/release')), []);
+  } finally { cleanup(); }
+});
+
+test('each headless Debian package contains the upstream license texts', { skip: process.platform !== 'linux' || spawnSync('dpkg-deb', ['--version']).status !== 0 }, () => {
+  const { root, run, cleanup } = fixture('x86_64-unknown-linux-gnu');
+  try {
+    const result = run('', path.join(root, 'scripts/debian.ts'));
+    assert.equal(result.status, 0, result.stderr);
+    for (const name of ['deepblock-cli', 'deepblock-server']) {
+      const extracted = path.join(root, name);
+      execFileSync('dpkg-deb', ['--extract', path.join(root, 'dist/release', `${name}_0.2.0_amd64.deb`), extracted]);
+      assert.equal(readFileSync(path.join(extracted, 'usr/share/doc', name, 'THIRD-PARTY-LICENSES.txt'), 'utf8'), upstreamTerms);
+    }
   } finally { cleanup(); }
 });
 
