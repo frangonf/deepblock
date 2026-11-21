@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DependencyEntry } from './licenses-core.ts';
 
@@ -12,10 +13,11 @@ interface LicenseSource extends DependencyEntry {
   readonly directory: string;
   readonly source: string;
   readonly additional?: readonly LicenseFile[];
+  readonly files?: readonly string[];
 }
 
 const licenseName = /^(?:licen[cs]es?|copying|copyright(?:notice)?|ofl|unlicense)(?:$|[-_.])/i;
-const noticeName = /^(?:notice|authors)(?:$|[-_.])/i;
+const noticeName = /^(?:notice|authors|third-party-(?:licenses?|notices?))(?:$|[-_.])/i;
 
 // Exact-version exceptions for published artifacts that do not contain the full
 // texts. Keep provenance beside each copy. An unreviewed upgrade must fail the
@@ -83,11 +85,21 @@ interface PnpmLicensePackage {
 }
 
 function packageInfo(directory: string): DependencyEntry {
-  return JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8')) as DependencyEntry;
+  const { name, version, license } = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8')) as DependencyEntry;
+  return { name, version, license };
 }
 
 function npmSource({ name, version }: DependencyEntry): string {
   return `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${version}.tgz`;
+}
+
+export function rustStandardLibrary(sysroot: string, version: string): LicenseSource {
+  return {
+    name: 'Rust standard library', version, license: 'MIT OR Apache-2.0',
+    directory: path.join(sysroot, 'share/doc/rust'),
+    files: ['COPYRIGHT-library.html', 'licenses/Apache-2.0.txt', 'licenses/MIT.txt'],
+    source: `https://github.com/rust-lang/rust/tree/${version}/library`,
+  };
 }
 
 export function distributionSources(root: string, cargoJson: string, shippedRust: ReadonlySet<string>, pnpmJson: string, rust: readonly DependencyEntry[], ui: readonly DependencyEntry[]): LicenseSource[] {
@@ -101,6 +113,10 @@ export function distributionSources(root: string, cargoJson: string, shippedRust
       installed.set(`${info.name}@${info.version}`, directory);
     }
   }
+  const uiModules = path.join(root, 'apps/desktop/ui/node_modules');
+  // Resolve Vite's locked copy, not another consumer's Rolldown version.
+  const viteManifest = realpathSync(path.join(uiModules, 'vite/package.json'));
+  const rolldown = path.dirname(createRequire(viteManifest).resolve('rolldown/package.json'));
   const entries: LicenseSource[] = [
     ...rust.filter((entry) => shippedRust.has(`${entry.name}@${entry.version}`)).map((entry) => {
       const pkg = cargo.get(`${entry.name}@${entry.version}`);
@@ -112,9 +128,8 @@ export function distributionSources(root: string, cargoJson: string, shippedRust
       if (!directory) throw new Error(`Cannot find installed UI package: ${entry.name}@${entry.version}`);
       return { ...entry, directory, source: npmSource(entry) };
     }),
-    // Tailwind emits preflight CSS and Vite may emit its modulepreload helper.
-    ...['tailwindcss', 'vite'].map((name) => {
-      const directory = path.join(root, 'apps/desktop/ui/node_modules', name);
+    // Tailwind emits preflight CSS; Vite and Rolldown emit JS helpers.
+    ...[path.join(uiModules, 'tailwindcss'), path.dirname(viteManifest), rolldown].map((directory) => {
       const entry = packageInfo(directory);
       return { ...entry, directory, source: npmSource(entry) };
     }),
@@ -143,8 +158,8 @@ export function renderDistributionLicenses(entries: readonly LicenseSource[]): s
     'This inventory covers packages for the supported Linux and macOS builds. Some build or platform-specific dependencies are not present in every binary.',
     'To obtain source files covered by MPL-2.0, see the exact crate source archive URLs below.',
   ];
-  for (const { name, version, license, source, directory, additional = [] } of entries) {
-    const files = readdirSync(directory, { withFileTypes: true })
+  for (const { name, version, license, source, directory, additional = [], files: explicit } of entries) {
+    const files = explicit ?? readdirSync(directory, { withFileTypes: true })
       .filter((file) => file.isFile() && !/\.spdx$/i.test(file.name) && (licenseName.test(file.name) || noticeName.test(file.name)))
       .map((file) => file.name).sort();
     if (!files.some((file) => licenseName.test(file)) && additional.length === 0) throw new Error(`No upstream license text for ${name}@${version}`);

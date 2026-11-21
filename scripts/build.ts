@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, rmdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -64,16 +64,28 @@ function verifyAppNotice(app: string, expected: Buffer) {
   verifyNotice(expected, ...['resources/bin', 'bin'].map((dir) => path.join(resources, dir, distributionLicenseName)));
 }
 
+function detachDmg(mount: string) {
+  // Disk Arbitration can still have the volume open just after mounting.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      run('hdiutil', ['detach', mount]);
+      return;
+    } catch (error) {
+      if (attempt === 4 || !(error instanceof Error) || !('status' in error) || error.status !== 16) throw error;
+      run('sleep', ['1']);
+    }
+  }
+}
+
 function verifyDmgNotice(dmg: string, expected: Buffer) {
   const mount = mkdtempSync(path.join(tmpdir(), 'deepblock-dmg-'));
   try {
     run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, dmg]);
     try { verifyAppNotice(path.join(mount, 'DeepBlock.app'), expected); }
-    finally { run('hdiutil', ['detach', mount]); }
+    finally { detachDmg(mount); }
   } finally {
-    // Never recurse into a mounted volume if hdiutil could not detach it.
-    // The mounted image is read-only; if still mounted, leave it for diagnostics.
-    if (readdirSync(mount).length === 0) rmSync(mount, { force: true, recursive: true });
+    // Never recursively delete the contents of a still-attached volume.
+    if (existsSync(mount) && readdirSync(mount).length === 0) rmdirSync(mount);
   }
 }
 

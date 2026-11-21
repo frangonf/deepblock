@@ -43,7 +43,7 @@ jobs:
         timeout-minutes: 5
         run: |
           mise install --locked node pnpm rust mr-boxington shellcheck
-          mise exec -- rustup component add rustfmt clippy
+          mise exec -- rustup component add rustfmt clippy rust-docs
       - name: Install locked frontend dependencies
         timeout-minutes: 3
         run: pnpm install --frozen-lockfile
@@ -98,6 +98,7 @@ jobs:
         timeout-minutes: 5
         run: |
           mise install --locked node pnpm rust mr-boxington
+          mise exec -- rustup component add rust-docs
           pnpm install --frozen-lockfile
       - name: Build with Tauri and collect packages
         env:
@@ -153,6 +154,7 @@ jobs:
         timeout-minutes: 5
         run: |
           mise install --locked node pnpm rust mr-boxington
+          mise exec -- rustup component add rust-docs
           pnpm install --frozen-lockfile
       - name: Build packages
         run: |

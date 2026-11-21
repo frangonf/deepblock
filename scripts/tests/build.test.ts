@@ -48,7 +48,7 @@ function fixture(buildTarget = target) {
   const tool = path.join(root, 'bin/tool.mjs');
   writeFileSync(tool, `#!${process.execPath}
 import path from 'node:path';
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 switch (path.basename(process.argv[1])) {
   case 'rustc': console.log('host: ${buildTarget}'); break;
@@ -73,8 +73,15 @@ switch (path.basename(process.argv[1])) {
       const mount = args[args.indexOf('-mountpoint') + 1];
       cpSync(path.join(path.dirname(args.at(-1)), '../macos/DeepBlock.app'), path.join(mount, 'DeepBlock.app'), { recursive: true });
       if (process.env.TEST_DMG_NOTICE) writeFileSync(path.join(mount, 'DeepBlock.app/Contents/Resources/resources/bin/THIRD-PARTY-LICENSES.txt'), process.env.TEST_DMG_NOTICE);
-    } else if (args[0] === 'detach') rmSync(path.join(args[1], 'DeepBlock.app'), { recursive: true });
-    else throw new Error('Unexpected hdiutil argument');
+    } else if (args[0] === 'detach') {
+      const marker = path.join(args[1], 'busy-before-retry');
+      if (process.env.TEST_DMG_BUSY && !existsSync(marker)) {
+        writeFileSync(marker, 'first detach attempt');
+        process.exit(16);
+      }
+      rmSync(marker, { force: true });
+      rmSync(path.join(args[1], 'DeepBlock.app'), { recursive: true });
+    } else throw new Error('Unexpected hdiutil argument');
     break;
   case 'dpkg-shlibdeps': console.log('shlibs:Depends=libc6'); break;
   default: throw new Error('Unexpected tool');
@@ -130,6 +137,15 @@ test('collection refuses a stale copy of the notices inside the packaged DMG', (
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Missing or mismatched third-party license texts/);
     assert.deepEqual(readdirSync(path.join(root, 'dist/release')), []);
+  } finally { cleanup(); }
+});
+
+test('collection retries a temporarily busy DMG without losing the verified packages', () => {
+  const { root, run, cleanup } = fixture();
+  try {
+    const result = run('collect', undefined, { TEST_DMG_BUSY: '1' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readdirSync(path.join(root, 'dist/release')).length, 3);
   } finally { cleanup(); }
 });
 

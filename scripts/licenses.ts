@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicWrite, distributionLicensePath, releaseTargets } from './release-core.ts';
-import { distributionSources, renderDistributionLicenses } from './distribution-licenses.ts';
+import { distributionSources, renderDistributionLicenses, rustStandardLibrary } from './distribution-licenses.ts';
 import {
   applyLicenseOverrides,
   evaluateLicenseExpression,
@@ -84,7 +84,13 @@ if (mode === 'generate') {
           '--features', 'deepblock-desktop/custom-protocol', '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}']).stdout;
         return [...tree.matchAll(/^(\S+) v(\S+)/gm)].map(([, name, version]) => `${name}@${version}`);
       }));
-      const entries = distributionSources(root, cargoJson, shippedRust, pnpmJson, rustEntries, uiEntries);
+      const sysroot = run('rustc', ['--print', 'sysroot']).stdout.trim();
+      const version = run('rustc', ['--version', '--verbose']).stdout.match(/^release: (\S+)$/m)?.[1];
+      if (!version) throw new Error('Unable to identify the Rust standard library version');
+      if (!existsSync(path.join(sysroot, 'share/doc/rust/COPYRIGHT-library.html'))) {
+        throw new Error('Missing Rust library copyright notices; run `mise exec -- rustup component add rust-docs`');
+      }
+      const entries = [...distributionSources(root, cargoJson, shippedRust, pnpmJson, rustEntries, uiEntries), rustStandardLibrary(sysroot, version)];
       const licenseFile = distributionLicensePath(root);
       const text = renderDistributionLicenses(entries);
       mkdirSync(path.dirname(licenseFile), { recursive: true });

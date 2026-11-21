@@ -12,6 +12,7 @@ test('distribution texts include the exact upstream copyright, supplemental noti
   const notice = 'This product includes Example work by the original contributors.\n';
   writeFileSync(path.join(directory, 'LICENSE.md'), copyright);
   writeFileSync(path.join(directory, 'NOTICE'), notice);
+  writeFileSync(path.join(directory, 'THIRD-PARTY-LICENSE'), 'Copyright (c) downstream third-party contributors\n');
   writeFileSync(path.join(directory, 'README.md'), 'Not a license file.');
   const source = 'https://static.crates.io/crates/example/example-1.2.3.crate';
   const rendered = renderDistributionLicenses([{ name: 'example', version: '1.2.3', license: 'MIT', source, directory }]);
@@ -19,6 +20,7 @@ test('distribution texts include the exact upstream copyright, supplemental noti
   assert.ok(rendered.includes(source));
   assert.ok(rendered.includes(copyright));
   assert.ok(rendered.includes(notice));
+  assert.ok(rendered.includes('Copyright (c) downstream third-party contributors'));
   assert.ok(!rendered.includes('Not a license file.'));
 });
 
