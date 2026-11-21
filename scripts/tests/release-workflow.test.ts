@@ -41,14 +41,16 @@ test('routine CI shares local desktop and browser dependency setup', () => {
   assert.doesNotMatch(ci, /playwright install --with-deps/);
 });
 
-test('routine CI skips docs-only pushes and PRs while keeping manual dispatch', () => {
+test('docs-only PRs still report the required checks, with expensive jobs skipped', () => {
   assert.match(ci, /^ {2}workflow_dispatch:$/m);
-  assert.match(ci, /^ {2}push:\n {4}branches: \[main\]/m);
-  for (const event of ['push', 'pull_request']) {
-    const trigger = ci.match(new RegExp(`^  ${event}:\\n((?:^ {4}.*\\n)+)`, 'm'))?.[1] ?? '';
-    assert.match(trigger, /^ {4}paths-ignore:$/m);
-    const ignored = [...trigger.matchAll(/^ {6}- "([^"]+)"$/gm)].map((match) => match[1]);
-    assert.deepEqual(ignored, ['docs/**', 'README.md', 'AGENTS.md']);
+  assert.match(ci, /^ {2}push:\n {4}branches: \[main\]\n {4}paths-ignore:\n {6}- "docs\/\*\*"\n {6}- "README\.md"\n {6}- "AGENTS\.md"$/m);
+  assert.match(ci, /^ {2}pull_request:\n\npermissions:/m);
+  const lint = job('actions', ci);
+  assert.match(lint, /fetch-depth: .*github\.event_name == 'pull_request' && '2'/);
+  assert.match(lint, /docs-only: \$\{\{ steps\.paths\.outputs\.docs-only \}\}/);
+  assert.match(lint, /if: github\.event_name == 'pull_request'\n {8}run: bash scripts\/pr-paths\.sh/);
+  for (const name of ['rust-lint', 'rust-test', 'desktop-ui']) {
+    assert.match(job(name, ci), /^ {4}needs: actions\n {4}if: needs\.actions\.outputs\.docs-only != 'true'$/m);
   }
 });
 

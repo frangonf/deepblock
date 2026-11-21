@@ -9,10 +9,6 @@ on:
       - "README.md"
       - "AGENTS.md"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - "AGENTS.md"
 
 permissions: {}
 
@@ -27,10 +23,17 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read # Check out workflows for syntax validation.
+    outputs:
+      docs-only: ${{ steps.paths.outputs.docs-only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+      - name: Check for docs-only PR changes
+        id: paths
+        if: github.event_name == 'pull_request'
+        run: bash scripts/pr-paths.sh
       - name: Set up mise
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
@@ -44,6 +47,8 @@ jobs:
 
   rust-lint:
     name: Rust lint
+    needs: actions
+    if: needs.actions.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -80,6 +85,8 @@ jobs:
 
   rust-test:
     name: Rust tests
+    needs: actions
+    if: needs.actions.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
@@ -128,6 +135,8 @@ jobs:
 
   desktop-ui:
     name: Desktop UI
+    needs: actions
+    if: needs.actions.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
