@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync, chmodSync,
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkVersions, resourceDirectory } from './release-core.ts';
+import { checkVersions, resourceDirectory, distributionLicenseName, distributionLicensePath } from './release-core.ts';
 
 if (process.platform !== 'linux') throw new Error('Debian packaging must run on the Debian build machine');
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -31,6 +31,7 @@ try {
     copyFileSync(source, path.join(packageRoot, 'usr/bin', binary));
     chmodSync(path.join(packageRoot, 'usr/bin', binary), 0o755);
     copyFileSync(path.join(root, 'LICENSE'), path.join(documentation, 'copyright'));
+    copyFileSync(distributionLicensePath(root), path.join(documentation, distributionLicenseName));
     copyFileSync(path.join(root, 'docs/linux-development.md'), path.join(documentation, 'README.md'));
     mkdirSync(path.join(work, 'debian'), { recursive: true });
     writeFileSync(path.join(work, 'debian/control'), `Source: deepblock\nSection: utils\nPriority: optional\nMaintainer: ${maintainer}\n\nPackage: ${name}\nArchitecture: amd64\nDescription: ${description}\n`);

@@ -63,7 +63,7 @@ jobs:
           mise run lint:rust
           mise run lint:desktop
           mise run lint:scripts
-          mise run licenses:check
+          mise run licenses:bundle
           mise run version:check
           # Serialized deliberately: parallel cargo tasks contend for the workspace
           # target-dir lock, and Playwright's `cargo run` webServer times out.

@@ -174,5 +174,5 @@ jobs:
         run: |
           mise run lint:scripts
           mise run test:scripts
-          mise run licenses:check
+          mise run licenses:bundle
           mise run version:check

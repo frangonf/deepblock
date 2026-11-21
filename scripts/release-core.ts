@@ -3,6 +3,8 @@ import path from 'node:path';
 import semver from 'semver';
 
 const packages = ['deepblock-cli', 'deepblock-desktop', 'deepblock-server'];
+export const distributionLicenseName = 'THIRD-PARTY-LICENSES.txt';
+export const distributionLicensePath = (root: string) => path.join(root, 'dist/licenses', distributionLicenseName);
 export const releaseTargets = ['aarch64-apple-darwin', 'x86_64-unknown-linux-gnu'] as const;
 export type ReleaseTarget = typeof releaseTargets[number];
 

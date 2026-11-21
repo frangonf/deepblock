@@ -57,7 +57,8 @@
         ],
         "files": {
           "/usr/share/doc/deepblock-desktop/README.md": "../../../docs/linux-development.md",
-          "/usr/share/doc/deepblock-desktop/copyright": "../../../LICENSE"
+          "/usr/share/doc/deepblock-desktop/copyright": "../../../LICENSE",
+          "/usr/share/doc/deepblock-desktop/THIRD-PARTY-LICENSES.txt": "../../../dist/licenses/THIRD-PARTY-LICENSES.txt"
         }
       }
     }

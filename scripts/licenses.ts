@@ -6,9 +6,11 @@
 //                                      locked dependency graphs.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { atomicWrite, distributionLicensePath, releaseTargets } from './release-core.ts';
+import { distributionSources, renderDistributionLicenses } from './distribution-licenses.ts';
 import {
   applyLicenseOverrides,
   evaluateLicenseExpression,
@@ -37,18 +39,15 @@ function run(command: string, args: readonly string[]): { stdout: string; stderr
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
-if (mode !== 'check' && mode !== 'generate') {
-  console.error('Usage: node scripts/licenses.ts <check|generate>');
+if (mode !== 'check' && mode !== 'generate' && mode !== 'distribution') {
+  console.error('Usage: node scripts/licenses.ts <check|generate|distribution>');
   process.exit(2);
 }
 
-const rustEntries = applyLicenseOverrides(
-  parseCargoMetadata(run('cargo', ['metadata', '--format-version', '1', '--locked']).stdout),
-);
-
-const uiEntries = applyLicenseOverrides(
-  parsePnpmLicenses(run('pnpm', ['-C', 'apps/desktop/ui', 'licenses', 'list', '--prod', '--json']).stdout),
-);
+const cargoJson = run('cargo', ['metadata', '--format-version', '1', '--locked']).stdout;
+const pnpmJson = run('pnpm', ['-C', 'apps/desktop/ui', 'licenses', 'list', '--prod', '--json']).stdout;
+const rustEntries = applyLicenseOverrides(parseCargoMetadata(cargoJson));
+const uiEntries = applyLicenseOverrides(parsePnpmLicenses(pnpmJson));
 
 const renderedNotices = renderNotices(groupByLicense(rustEntries), groupByLicense(uiEntries));
 
@@ -79,5 +78,18 @@ if (mode === 'generate') {
     process.exitCode = 1;
   } else {
     console.log(`licenses: OK (Rust crates: ${rustEntries.length}, UI packages: ${uiEntries.length})`);
+    if (mode === 'distribution') {
+      const shippedRust = new Set(releaseTargets.flatMap((target) => {
+        const tree = run('cargo', ['tree', '--locked', '--workspace', '--target', target,
+          '--features', 'deepblock-desktop/custom-protocol', '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}']).stdout;
+        return [...tree.matchAll(/^(\S+) v(\S+)/gm)].map(([, name, version]) => `${name}@${version}`);
+      }));
+      const entries = distributionSources(root, cargoJson, shippedRust, pnpmJson, rustEntries, uiEntries);
+      const licenseFile = distributionLicensePath(root);
+      const text = renderDistributionLicenses(entries);
+      mkdirSync(path.dirname(licenseFile), { recursive: true });
+      atomicWrite(licenseFile, text);
+      console.log(`licenses: wrote ${path.relative(root, licenseFile)} (${entries.length} dependencies and assets)`);
+    }
   }
 }

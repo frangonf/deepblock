@@ -11,8 +11,8 @@ description = "Build the shared React UI from the desktop workspace"
 run = "mise -C ../.. run build:web"
 
 [tasks."prepare:bundle"]
-description = "Stage target-matched CLI and explicitly verified optional resources"
-run = "node ../../scripts/build.ts stage"
+description = "Stage license texts, target-matched CLI, and verified optional resources"
+run = "node ../../scripts/licenses.ts distribution && node ../../scripts/build.ts stage"
 
 [tasks.build]
 description = "Build the desktop shell"
