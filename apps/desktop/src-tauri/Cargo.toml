@@ -1,0 +1,37 @@
+[package]
+name = "deepblock-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Revision-based daily planning desktop app"
+build = "build.rs"
+
+[lib]
+name = "deepblock_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+deepblock-server = { path = "../../server" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { workspace = true, features = ["tray-icon"] }
+tauri-plugin-notification = "=2.8.1"
+tauri-plugin-dialog = "=2.8.4"
+tempfile.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tokio-util = { version = "=0.7.20", features = ["io"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

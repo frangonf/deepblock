@@ -1,0 +1,44 @@
+name: Set up CI APT dependencies
+description: Install verified distro packages with bounded downloads and a downloaded-archive cache
+inputs:
+  profile:
+    description: Dependency profile (desktop, debian, or chromium)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure acquisition limits and package cache identity
+      id: identity
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        LOCKFILE: ${{ hashFiles('pnpm-lock.yaml') }}
+      run: |
+        case "$PROFILE" in desktop|debian|chromium) ;; *) exit 1 ;; esac
+        script="$GITHUB_WORKSPACE/scripts/ci-apt.sh"
+        bash "$script" configure
+        . /etc/os-release
+        architecture="$(dpkg --print-architecture)"
+        definition="$(sha256sum "$script" "$GITHUB_ACTION_PATH/action.yml" "$GITHUB_WORKSPACE/scripts/bootstrap-debian.sh" | cut -d ' ' -f 1 | sha256sum | cut -d ' ' -f 1)"
+        prefix="apt-$ID-$VERSION_ID-$architecture-$PROFILE-$definition-$LOCKFILE"
+        printf 'prefix=%s\nkey=%s-%s\npath=%s/deepblock-apt/%s\n' \
+          "$prefix" "$prefix" "$(date -u +%G-%V)" "$RUNNER_TEMP" "$PROFILE" >> "$GITHUB_OUTPUT"
+    - name: Restore downloaded APT archives
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.identity.outputs.path }}
+        key: ${{ steps.identity.outputs.key }}
+        restore-keys: ${{ steps.identity.outputs.prefix }}-
+    - name: Install signed-repository dependencies
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        CACHE: ${{ steps.identity.outputs.path }}
+      run: bash "$GITHUB_WORKSPACE/scripts/ci-apt.sh" install "$PROFILE" "$CACHE"
+    - name: Save archives from reviewed main only
+      if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.identity.outputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

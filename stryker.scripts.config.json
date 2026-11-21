@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "reporters": ["progress", "clear-text", "html", "json"],
+  "concurrency": 1,
+  "thresholds": {
+    "high": 90,
+    "low": 75,
+    "break": 0
+  },
+  "ignorePatterns": [
+    "**/target/**",
+    "**/dist/**",
+    "**/.playwright-data/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "**/mutants.out*/**",
+    "**/.stryker-tmp*/**",
+    "**/proptest-regressions/**",
+    "**/target",
+    "**/dist",
+    "**/.stryker-tmp*",
+    "**/mutants.out*"
+  ],
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --test scripts/tests/*.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "scripts/**/*.ts",
+    "apps/desktop/ui/scripts/**/*.ts",
+    "!**/*.{test,spec}.ts"
+  ],
+  "incremental": false,
+  "timeoutMS": 60000,
+  "timeoutFactor": 2,
+  "htmlReporter": {
+    "fileName": "reports/mutation/scripts.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/scripts.json"
+  },
+  "disableTypeChecks": "**/*.{ts,tsx}"
+}

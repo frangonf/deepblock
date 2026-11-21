@@ -1,0 +1,52 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cargo-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # The root pnpm lockfile covers both root tooling and apps/desktop/ui.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      schedule-x:
+        patterns: ["@schedule-x/*"]
+        update-types: [minor, patch]
+      radix-ui:
+        patterns: ["@radix-ui/*"]
+        update-types: [minor, patch]
+      tauri-js:
+        patterns: ["@tauri-apps/*"]
+        update-types: [minor, patch]
+      js-development:
+        dependency-type: development
+        update-types: [minor, patch]
+      js-production:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      # Revisit together with typescript-eslint, whose current peer is <6.1.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
+      # Schedule-X requires this exact peer. Update both together manually.
+      - dependency-name: temporal-polyfill
+
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/setup-apt"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]

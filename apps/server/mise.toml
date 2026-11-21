@@ -1,0 +1,23 @@
+[tasks.dev]
+description = "Run the Rust server in development mode"
+run = "cargo run --bin deepblock-server"
+
+[tasks.start]
+description = "Run the Rust server in release mode"
+run = "cargo run --release --bin deepblock-server"
+
+[tasks.build]
+description = "Build the Rust server"
+run = "cargo build --bin deepblock-server"
+
+[tasks.test]
+description = "Run Rust server tests"
+run = "cargo test -p deepblock-server"
+
+[tasks.lint]
+description = "Lint the Rust server"
+run = "cargo clippy -p deepblock-server --all-targets -- -D warnings && cargo fmt --all -- --check"
+
+[tasks.fmt]
+description = "Format Rust server code"
+run = "cargo fmt --all"

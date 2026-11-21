@@ -1,0 +1,316 @@
+# Root mise.toml - orchestrates the live Rust/Tauri apps
+# https://mise.jdx.dev/tasks/monorepo.html
+
+min_version = "2026.9.15"
+
+[monorepo]
+config_roots = ["apps/cli", "apps/desktop", "apps/server"]
+
+[tools]
+hk = "2.13.0"
+node = "26.13.1"
+pnpm = "12.21.0"
+rust = { version = "1.100.0", mr_boxington = true }
+mr-boxington = { version = "1.30.0", workflow = "release.yml@refs/heads/main" }
+"github:zizmorcore/zizmor" = "1.32.0"
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+
+[env]
+MISE_EXPERIMENTAL = "1"
+HK_MISE = "1"
+
+[tasks.install]
+description = "Install Rust and desktop UI dependencies"
+run = """
+cargo fetch
+pnpm install --frozen-lockfile
+"""
+
+[tasks."install:tauri"]
+description = "Check the pnpm-locked Tauri CLI (run mise run install first)"
+run = "pnpm -C apps/desktop/ui exec tauri --version"
+
+[tasks."dev:server"]
+description = "Run Rust development server"
+run = "node scripts/dev.ts server"
+
+[tasks."dev:cli"]
+description = "Run Rust CLI help in dev mode"
+run = "mise -C apps/cli run dev"
+
+[tasks."dev:web"]
+description = "Run the shared React UI directly in the browser"
+run = "node scripts/dev.ts web"
+
+[tasks."dev:desktop"]
+description = "Run Tauri desktop app"
+env = { DEEPBLOCK_DEV_LOCAL = "1" }
+run = "mise run install:tauri && mise -C apps/desktop run dev"
+
+[tasks."preview:web"]
+description = "Preview the shared React UI build in the browser"
+run = "cd apps/desktop/ui && pnpm run preview:web"
+
+[tasks."build:web"]
+description = "Build the shared React UI for browser and Tauri consumption"
+run = "cd apps/desktop/ui && pnpm run build:web"
+
+[tasks."build:rust"]
+description = "Build the Rust workspace"
+run = "cargo build --locked --workspace"
+
+[tasks."build:desktop"]
+description = "Build the Tauri desktop shell"
+run = "cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml"
+
+[tasks."prepare:bundle"]
+description = "Stage desktop bundle resources"
+run = "mise -C apps/desktop run prepare:bundle"
+
+[tasks."build:desktop:bundle"]
+description = "Create a bundled Tauri desktop app"
+run = "mise run install:tauri && mise -C apps/desktop run build:bundle"
+
+[tasks.build]
+description = "Build the Rust workspace and shared frontend (no packages)"
+depends = ["build:rust", "build:web"]
+
+[tasks."lint:rust"]
+description = "Lint Rust code"
+run = """
+#!/usr/bin/env bash
+set -e
+
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+"""
+
+[tasks."lint:desktop"]
+description = "Lint and typecheck the desktop UI"
+run = "cd apps/desktop/ui && pnpm run lint && pnpm run typecheck"
+
+[tasks."actions:audit"]
+description = "Audit GitHub Actions workflows with zizmor"
+run = "if [ -d .github/workflows ]; then zizmor .github --offline --persona=auditor; else echo 'No .github/workflows/ found, skipping.'; fi"
+
+[tasks.actionlint]
+description = "Lint GitHub Actions workflows with actionlint"
+run = "if [ -d .github/workflows ]; then actionlint .github/workflows/*.yml; else echo 'No .github/workflows/ found, skipping.'; fi"
+
+[tasks.lint]
+description = "Run all linters"
+depends = ["lint:rust", "lint:desktop", "lint:scripts", "licenses:check", "actions:audit", "actionlint"]
+
+[tasks."test:rust"]
+description = "Run Rust unit and integration tests"
+run = "cargo test --locked --workspace"
+
+[tasks."test:desktop"]
+description = "Run shared UI unit and browser end-to-end tests"
+run = "cd apps/desktop/ui && pnpm run test:unit && pnpm run test:web"
+
+[tasks.test]
+description = "Run all unit and integration tests"
+depends = ["test:rust", "test:desktop", "test:scripts"]
+
+[tasks.start]
+description = "Run production server (alias for start:server)"
+run = "mise run start:server"
+
+[tasks."start:server"]
+description = "Run production Rust server on its configured loopback port"
+run = "cargo run --locked --release -p deepblock-server"
+
+[tasks."start:cli"]
+description = "Run Rust CLI help"
+run = "cargo run --release -p deepblock-cli -- --help"
+
+[tasks.dev]
+description = "Run backend and shared web UI on a private LAN interface"
+run = "node scripts/dev.ts"
+
+[tasks."fmt:rust"]
+description = "Format Rust code"
+run = "cargo fmt --all"
+
+[tasks.fmt]
+description = "Format Rust code"
+depends = ["fmt:rust"]
+
+[tasks."clean:rust"]
+description = "Remove this project's Rust build output and mbx workspace state"
+run = """
+set -eu
+cargo clean
+mbx clean
+"""
+
+[tasks."clean:web"]
+description = "Remove frontend dependencies, build output and test reports"
+run = """
+rm -rf node_modules apps/desktop/ui/node_modules \
+  apps/desktop/ui/dist apps/desktop/ui/test-results \
+  apps/desktop/ui/playwright-report
+"""
+
+[tasks."cache:trim"]
+description = "Trim machine-wide mbx cache objects to MBX_MAX_SIZE (default 50MiB)"
+run = """
+set -eu
+budget="${MBX_MAX_SIZE:-50MiB}"
+mbx gc --max-size "$budget"
+"""
+
+[tasks.clean]
+description = "Remove project builds, release output, frontend dependencies, then trim the shared mbx cache"
+run = """
+set -eu
+mise run clean:rust
+mise run clean:web
+rm -rf dist
+mise run cache:trim
+"""
+
+[tasks.check]
+description = "Run Rust/Tauri checks"
+depends = ["lint", "test", "build"]
+
+[tasks."lint:scripts"]
+description = "Typecheck and lint native Node TypeScript scripts"
+run = "pnpm exec tsc -p scripts/tsconfig.json && apps/desktop/ui/node_modules/.bin/eslint -c apps/desktop/ui/eslint.config.js scripts && shellcheck scripts/*.sh apps/desktop/ui/scripts/*.sh"
+
+[tasks."test:scripts"]
+description = "Test development and release helpers directly under Node"
+run = "node --test scripts/tests/*.test.ts"
+
+[tasks."licenses:check"]
+description = "Fail on Rust or desktop-UI dependency licenses outside the accepted list"
+run = "node scripts/licenses.ts check"
+
+[tasks."licenses:notices"]
+description = "Regenerate THIRD-PARTY-NOTICES.md from locked dependencies"
+run = "node scripts/licenses.ts generate"
+
+[tasks."version:check"]
+description = "Check product manifest and lockfile version agreement"
+run = "node scripts/release.ts check"
+
+[tasks."release:prepare"]
+description = "Prepare reviewed version/changelog changes (pass --version and --notes, optionally --apply)"
+run = "node scripts/release.ts prepare"
+
+[tasks."build:tools"]
+description = "Build release CLI/server for the selected target"
+run = "node scripts/build.ts tools"
+
+[tasks."build:debian"]
+description = "Build Debian desktop, CLI, and server packages on Linux"
+run = "mise run build:tools && mise run build:desktop:bundle && node scripts/debian.ts && node scripts/build.ts collect"
+
+[tasks."release:collect"]
+description = "Collect and verify target release assets"
+run = "node scripts/build.ts collect"
+
+[tasks."hooks:install"]
+description = "Install git hooks via hk using mise-managed tools (staged-only)"
+run = "hk install --mise"
+
+# Mutation testing is opt-in and local; ordinary test/check tasks and CI do not invoke it.
+# Default runs one worker per suite. Forward `max` (e.g. `mise run test:mutation:rust -- max`)
+# before other tool flags to use more of the machine; remaining args pass through unchanged.
+# mise appends forwarded args to the script's last line, so the last line must be the
+# arg-consuming function call.
+[tasks."test:mutation:rust"]
+description = "Mutate all Rust workspace packages with cargo-mutants (local only)"
+run = """
+rust_mutate() {
+  jobs=1
+  if [ "${1:-}" = "max" ]; then jobs=5; export CARGO_BUILD_JOBS=6; shift; fi
+  cargo mutants --workspace --jobs "$jobs" "$@"
+}
+rust_mutate
+"""
+env = { CARGO_PROFILE_TEST_DEBUG = "0", CARGO_BUILD_JOBS = "4", PROPTEST_RNG_SEED = "20261009" }
+
+[tasks."test:mutation:rust".tools]
+"cargo:cargo-mutants" = "27.1.0"
+
+[tasks."test:mutation:ui"]
+description = "Mutate all shared UI source with Vitest (local only)"
+run = """
+ui_mutate() {
+  concurrency=""
+  if [ "${1:-}" = "max" ]; then concurrency="--concurrency 4"; shift; fi
+  pnpm -C apps/desktop/ui exec stryker run $concurrency "$@"
+}
+ui_mutate
+"""
+
+[tasks."test:mutation:scripts"]
+description = "Mutate Node development, build, release and native test helpers (local only)"
+run = """
+scripts_mutate() {
+  concurrency=""
+  if [ "${1:-}" = "max" ]; then concurrency="--concurrency 6"; shift; fi
+  pnpm exec stryker run stryker.scripts.config.json $concurrency "$@"
+}
+scripts_mutate
+"""
+
+[tasks."test:mutation:web"]
+description = "Mutate all shared UI source against Playwright (local only; slow)"
+run = """
+web_mutate() {
+  if [ "${1:-}" = "max" ]; then
+    # Browser fixtures bind fixed ports, so max mode cannot add Stryker workers here.
+    echo "test:mutation:web: max mode keeps concurrency 1 (fixed-port browser servers)"
+    shift
+  fi
+  # Application fixtures replace XDG roots; keep mise itself on the host's tool roots.
+  export MISE_DATA_DIR="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+  export MISE_STATE_DIR="${MISE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mise}"
+  export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/mise}"
+  # Trust only copies of this reviewed config inside Stryker's temporary tree.
+  export MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+$MISE_TRUSTED_CONFIG_PATHS:}$PWD/.stryker-tmp"
+  pnpm exec stryker run stryker.web.config.json "$@"
+}
+web_mutate
+"""
+env = { DEEPBLOCK_MUTATION_E2E = "1", CARGO_PROFILE_DEV_DEBUG = "0", CARGO_BUILD_JOBS = "4" }
+
+[tasks."test:mutation"]
+description = "Run every local mutation suite serially and report any failures"
+run = """
+mutation_all() {
+  mode=""
+  if [ "${1:-}" = "max" ]; then mode="max"; shift; fi
+  if [ "$#" -gt 0 ]; then
+    echo "test:mutation: only 'max' is accepted here; pass tool flags to a suite-specific task" >&2
+    exit 2
+  fi
+  status=0
+  mise run test:mutation:rust $mode || status=1
+  mise run test:mutation:ui $mode || status=1
+  mise run test:mutation:scripts $mode || status=1
+  mise run test:mutation:web $mode || status=1
+  exit "$status"
+}
+mutation_all
+"""
+
+[tasks."test:property:rust"]
+description = "Run Rust scheduling and revision properties"
+run = "cargo test --locked -p deepblock-server --lib property_"
+
+[tasks."test:property:ui"]
+description = "Run shared UI property tests"
+run = "pnpm -C apps/desktop/ui exec vitest run .property.test."
+
+[tasks."test:property:scripts"]
+description = "Run native Node release-policy properties"
+run = "node --test scripts/tests/*.property.test.ts"
+
+[tasks."test:property"]
+description = "Run all property tests (also included in normal test suites)"
+depends = ["test:property:rust", "test:property:ui", "test:property:scripts"]

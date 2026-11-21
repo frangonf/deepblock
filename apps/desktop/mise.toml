@@ -1,0 +1,39 @@
+[tasks.dev]
+description = "Run the Tauri desktop shell in development mode"
+run = "cd src-tauri && ../ui/node_modules/.bin/tauri dev"
+
+[tasks."dev:web"]
+description = "Run the shared React UI for Tauri from the desktop workspace"
+run = "mise -C ../.. run dev:web"
+
+[tasks."build:web"]
+description = "Build the shared React UI from the desktop workspace"
+run = "mise -C ../.. run build:web"
+
+[tasks."prepare:bundle"]
+description = "Stage target-matched CLI and explicitly verified optional resources"
+run = "node ../../scripts/build.ts stage"
+
+[tasks.build]
+description = "Build the desktop shell"
+run = "cargo build --manifest-path src-tauri/Cargo.toml"
+
+[tasks."build:bundle"]
+description = "Bundle the desktop shell with Tauri"
+run = "node ../../scripts/build.ts bundle"
+
+[tasks.test]
+description = "Run desktop shell tests"
+run = "cargo test -p deepblock-desktop"
+
+[tasks."test:ui"]
+description = "Run desktop UI unit and end-to-end tests"
+run = "cd ui && pnpm run test:unit && pnpm run test:e2e"
+
+[tasks.lint]
+description = "Lint the desktop shell"
+run = "cargo clippy -p deepblock-desktop --all-targets -- -D warnings && cargo fmt --all -- --check"
+
+[tasks.fmt]
+description = "Format desktop shell code"
+run = "cargo fmt --all"

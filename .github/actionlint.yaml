@@ -1,0 +1,11 @@
+# GitHub supports this hosted image; actionlint 1.7.12 predates its label.
+# Remove once actionlint includes ubuntu-26.04 in its built-in labels.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+
+paths:
+  .github/workflows/{release,test}.yml:
+    ignore:
+      # Remove when actionlint recognizes GitHub's self-repository action syntax.
+      - '^specifying action "\$/\.github/actions/setup-apt" in invalid format because ref is missing\.'

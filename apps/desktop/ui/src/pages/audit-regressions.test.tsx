@@ -1,0 +1,90 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, expect, it, vi } from 'vitest';
+import * as api from '@/lib/api';
+import { ComparePage } from './ComparePage';
+import { NotesPage } from './NotesPage';
+import { BacklogPage } from './BacklogPage';
+import { HelpPage } from './HelpPage';
+import { PlannerPage } from './PlannerPage';
+import { RealityPage } from './RealityPage';
+import { ReviewPage } from './ReviewPage';
+import { BlockDialog } from '@/components/planner/PlannerDialogs';
+vi.mock('@/components/planner/PlannerCalendarView', () => ({ PlannerCalendarView: () => <div /> }));
+vi.mock('@/lib/api', async (original) => ({ ...await original<typeof api>(), getPlan: vi.fn(), getConfig: vi.fn(), comparePlan: vi.fn(), getNote: vi.fn(), getBacklog: vi.fn(), getPlanReview: vi.fn(), replanBatch: vi.fn(), getActivityWatchSummary: vi.fn() }));
+function page(element: React.ReactNode, route = '/?date=2099-01-02') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[route]}>{element}</MemoryRouter></QueryClientProvider>);
+}
+const plan = { date: '2099-01-02', revisions: [{ id: 'A', created_at: '', reason: null, blocks: [] }], note_path: null, change_log: [] } as unknown as api.DayPlan;
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getPlan).mockResolvedValue(plan); vi.mocked(api.getConfig).mockResolvedValue({ default_duration: 60, default_type: 'focus' } as api.ClientConfig); });
+it('explains a single revision without comparing it to itself', async () => { page(<ComparePage />); expect(await screen.findByText('Nothing to compare yet')).toBeInTheDocument(); expect(screen.queryByRole('combobox')).not.toBeInTheDocument(); expect(api.comparePlan).not.toHaveBeenCalled(); });
+it('defaults to the first nonempty saved plan, leaving legacy bootstrap revisions selectable', async () => {
+  const block = { id: 'work', label: 'Work', start: '09:00', duration: 60 } as api.Block;
+  vi.mocked(api.getPlan).mockResolvedValue({ ...plan, revisions: [plan.revisions[0], { ...plan.revisions[0], id: 'B', blocks: [block] }, { ...plan.revisions[0], id: 'C', blocks: [{ ...block, start: '10:00' }] }] });
+  vi.mocked(api.comparePlan).mockResolvedValue({ base_revision: 'B', compare_revision: 'C', summary: '0 added, 0 removed, 1 modified', added: [], removed: [], modified: [], change_log: [] });
+  page(<ComparePage />);
+  await waitFor(() => expect(api.comparePlan).toHaveBeenCalledWith('B', 'C', '2099-01-02'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Base revision' }), { target: { value: 'A' } });
+  await waitFor(() => expect(api.comparePlan).toHaveBeenCalledWith('A', 'C', '2099-01-02'));
+});
+it('keeps a rejected block edit open and reports the scheduling error', async () => {
+  const close = vi.fn();
+  page(<BlockDialog open block={null} onOpenChange={close} onSubmit={async () => { throw new Error('Cascade exceeds 24:00'); }} />);
+  fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Late work' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to draft' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Cascade exceeds 24:00');
+  expect(close).not.toHaveBeenCalled();
+});
+it('renders line breaks in the note prompt', async () => { vi.mocked(api.getNote).mockResolvedValue({ content: '' }); page(<NotesPage />); const editor = await screen.findByRole('textbox'); expect(editor.getAttribute('placeholder')).toContain('\n\n'); expect(editor.getAttribute('placeholder')).not.toContain('\\n'); });
+it('shows one useful empty backlog state', async () => { vi.mocked(api.getBacklog).mockResolvedValue([]); page(<BacklogPage />); expect(await screen.findByText('Your backlog is clear')).toBeInTheDocument(); expect(screen.queryByText('No tasks here yet.')).not.toBeInTheDocument(); });
+it('provides task-oriented help', () => { page(<HelpPage />); expect(screen.getByRole('link', { name: 'Open planner' })).toBeInTheDocument(); expect(screen.getByText('Save a revised plan')).toBeInTheDocument(); expect(screen.queryByText(/webdriver/)).not.toBeInTheDocument(); });
+it('allows a future draft and saves to the selected date', async () => {
+  vi.mocked(api.replanBatch).mockResolvedValue(plan); page(<PlannerPage />);
+  const add = await screen.findByRole('button', { name: 'Add block' }); await waitFor(() => expect(add).toBeEnabled()); fireEvent.click(add);
+  fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Future work' } }); fireEvent.click(screen.getByRole('button', { name: 'Apply to draft' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument()); fireEvent.click(screen.getByRole('button', { name: 'Save revised plan' }));
+  await waitFor(() => expect(api.replanBatch).toHaveBeenCalledWith(expect.objectContaining({ operations: expect.arrayContaining([expect.objectContaining({ label: 'Future work' })]) }), '2099-01-02'));
+});
+it('labels past plans read-only', async () => { page(<PlannerPage />, '/?date=2000-01-02'); expect(await screen.findByText(/Past plans are read-only/)).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Add block' })).toBeDisabled(); });
+it('shows unassessed metrics without evidence', async () => { vi.mocked(api.getPlanReview).mockResolvedValue({ date: plan.date, revision_id: 'A', summary: { reviewed_blocks: 4, observed_blocks: 0, total_reports: 0, high: 0, medium: 0, low: 0 }, reports: [] }); page(<ReviewPage />); expect(await screen.findAllByText('Not assessed')).toHaveLength(3); });
+it('keeps legacy empty ActivityWatch logs unassessed rather than showing zero focus', async () => {
+  const block = { id: 'offline', label: 'Offline work', start: '09:00', duration: 60, status: 'proposed', type: 'focus', reality: { total_active_seconds: 0, focus_score: 0, top_app: 'Unknown', category_breakdown: {} } } as api.Block;
+  vi.mocked(api.getPlan).mockResolvedValue({ ...plan, revisions: [{ ...plan.revisions[0], blocks: [block] }] });
+  page(<RealityPage />);
+  expect(await screen.findByText('0 of 1 block(s) audited')).toBeInTheDocument();
+  expect(screen.queryByText(/Focus score 0/)).not.toBeInTheDocument();
+});
+it('retains block fields across parent renders and submits their draft values', async () => {
+  const submit = vi.fn(async () => {});
+  const close = vi.fn();
+  const initialValues = { label: 'Seed', start: '10:00', duration: 45, type: 'shallow' } as const;
+  const { rerender } = render(<BlockDialog open block={null} initialValues={initialValues} onOpenChange={close} onSubmit={submit} />);
+  fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Work' } });
+  fireEvent.change(screen.getByLabelText('Start'), { target: { value: '11:00' } });
+  fireEvent.change(screen.getByLabelText('Duration (minutes)'), { target: { value: '90' } });
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'focus' } });
+  fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'done' } });
+  fireEvent.change(screen.getByLabelText('Focus rating'), { target: { value: '4' } });
+  fireEvent.change(screen.getByLabelText('Artifact path'), { target: { value: 'work.md' } });
+  fireEvent.change(screen.getByLabelText('Next action'), { target: { value: 'Ship' } });
+  rerender(<BlockDialog open block={null} initialValues={{ ...initialValues, label: 'Changed seed' }} onOpenChange={close} onSubmit={submit} />);
+  expect(screen.getByLabelText('Label')).toHaveValue('Work');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to draft' }));
+  await waitFor(() => expect(submit).toHaveBeenCalledWith({ label: 'Work', start: '11:00', duration: 90, type: 'focus', status: 'done', focus_rating: 4, next_action: 'Ship', content_path: 'work.md' }));
+  expect(close).toHaveBeenCalledWith(false);
+});
+it('explains form limits before submission', () => { page(<BlockDialog open block={null} onOpenChange={vi.fn()} onSubmit={vi.fn()} />); expect(screen.getByLabelText('Label')).toBeRequired(); expect(screen.getByText('15–480 minutes; must finish before midnight.')).toBeInTheDocument(); expect(screen.getByText('Optional · 1 (low) to 5 (high).')).toBeInTheDocument(); });
+it('labels ActivityWatch as live and keeps event details collapsed', async () => {
+  const { ActivityWatchPage } = await import('./ActivityWatchPage');
+  vi.mocked(api.getActivityWatchSummary).mockResolvedValue({ device_id: 'test-device', hostname: 'local', server_version: 'test', current_status: 'not-afk', current_window: null, current_web_tab: null, watchers: [], today: { active_seconds: 0, top_apps: [], top_domains: [], recent_windows: [{ timestamp: '2026-10-01T12:00:00', duration_seconds: 60, app: 'Editor', title: 'Example', url: null, domain: null, status: null }] } });
+  page(<ActivityWatchPage available />);
+  expect(await screen.findByText('Today · live snapshot')).toBeInTheDocument();
+  const disclosure = screen.getByText('Recent active windows (1)').closest('details');
+  expect(disclosure).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByText('Recent active windows (1)'));
+  expect(screen.getByText('Filter by app or window title')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Filter by app or window title' }), { target: { value: 'missing' } });
+  expect(screen.getByText('No windows match this filter.')).toBeInTheDocument();
+});

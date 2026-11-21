@@ -1,0 +1,31 @@
+import { expect, test } from './fixtures';
+
+test('manual ownership and goals join a saved draft and feedback preserves its intent', async ({ page, request }) => {
+  const suffix = Date.now();
+  await page.goto('/settings');
+  await page.getByLabel('Project name', { exact: true }).fill(`Employer ${suffix}`);
+  await page.getByLabel('Project ownership').selectOption('employer');
+  await page.getByRole('button', { name: 'Add project', exact: true }).click();
+  await expect(page.getByText(`Employer ${suffix} · employer`, { exact: true })).toBeVisible();
+  await page.getByLabel('Goal label').fill(`Ship ${suffix}`);
+  await page.getByRole('button', { name: 'Add goal', exact: true }).click();
+  await expect(page.getByText(`Ship ${suffix}`, { exact: true })).toBeVisible();
+  const response = await request.post('http://127.0.0.1:8010/blocks', { data: { label: `Context ${suffix}`, start: '09:00', duration: 30 } });
+  expect(response.ok()).toBeTruthy();
+  const seeded = await response.json();
+  const block = seeded.revisions.at(-1).blocks.find((b: { label: string }) => b.label === `Context ${suffix}`);
+  await page.goto('/planner');
+  await page.getByText('Project and goal associations', { exact: true }).click();
+  await page.getByLabel('Context block', { exact: true }).selectOption(block.id);
+  await page.getByLabel('Block project').selectOption({ label: `Employer ${suffix} · employer` });
+  await page.getByLabel('Block goal').selectOption({ label: `Ship ${suffix}` });
+  const saved = page.waitForResponse((r) => r.url().includes('/plan/replan') && r.request().method() === 'POST');
+  await page.getByTestId('planner-commit-replan').click();
+  expect((await saved).ok()).toBeTruthy();
+  const intent = await (await request.get(`http://127.0.0.1:8010/intent/${seeded.date}`)).json();
+  const intended = intent.blocks.find((b: { block_id: string }) => b.block_id === block.id);
+  expect(intended.project.ownership).toBe('employer');
+  expect(intended.goal.label).toBe(`Ship ${suffix}`);
+  expect((await request.patch(`http://127.0.0.1:8010/blocks/${block.id}/outcome`, { data: { actual_duration: 0 } })).ok()).toBeTruthy();
+  expect((await (await request.get(`http://127.0.0.1:8010/intent/${seeded.date}`)).json()).version).toBe(intent.version);
+});

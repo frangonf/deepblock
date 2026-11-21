@@ -1,0 +1,169 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actions:
+    name: Workflow lint
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # Check out workflows for syntax validation.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.10.25
+          install: false
+          cache: true
+      - name: Install workflow tools
+        run: mise install --locked actionlint shellcheck
+      - name: Lint workflows
+        run: mise run actionlint
+
+  rust-lint:
+    name: Rust lint
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # Check out code for Rust quality gates.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reclaim runner disk for Rust checks
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghcup
+          df -h /
+      - name: Install desktop development dependencies
+        timeout-minutes: 8
+        uses: $/.github/actions/setup-apt
+        with:
+          profile: desktop
+      - name: Set up mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.10.25
+          install: false
+          cache: true
+      - name: Install locked Rust toolchain and components
+        run: |
+          mise install --locked rust mr-boxington
+          mise exec -- rustup component add rustfmt clippy
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Format
+        run: mise exec -- cargo fmt --all -- --check
+      - name: Clippy
+        run: mise exec -- cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  rust-test:
+    name: Rust tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    env:
+      # Bound test artifact/linker size on hosted runners; assertions stay enabled.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    permissions:
+      contents: read # Check out code for Rust quality gates.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reclaim runner disk for Rust tests
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghcup
+          df -h /
+      - name: Install desktop development dependencies
+        timeout-minutes: 8
+        uses: $/.github/actions/setup-apt
+        with:
+          profile: desktop
+      - name: Set up mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.10.25
+          install: false
+          cache: true
+      - name: Install locked Rust toolchain
+        run: mise install --locked rust mr-boxington
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-nextest@0.9.150
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Test
+        run: |
+          df -h . "$RUNNER_TEMP"
+          mise exec -- cargo nextest run --locked --workspace
+      - name: Doc tests
+        run: mise exec -- cargo test --doc --locked --workspace
+      - name: Build disk usage
+        if: always()
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target "${XDG_CACHE_HOME:-$HOME/.cache}/mbx" 2>/dev/null || true
+
+  desktop-ui:
+    name: Desktop UI
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # Check out shared UI and backend fixtures.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.10.25
+          install: false
+          cache: true
+      - name: Install locked tools and dependencies
+        run: |
+          mise install --locked node pnpm rust mr-boxington shellcheck
+          pnpm install --frozen-lockfile
+      - name: Install browser system dependencies
+        timeout-minutes: 8
+        uses: $/.github/actions/setup-apt
+        with:
+          profile: chromium
+      - name: Download Chromium
+        timeout-minutes: 5
+        run: pnpm -C apps/desktop/ui exec playwright install chromium
+      - name: UI quality gates
+        run: |
+          pnpm -C apps/desktop/ui run lint
+          pnpm -C apps/desktop/ui run typecheck
+          pnpm -C apps/desktop/ui run test:unit
+          pnpm -C apps/desktop/ui run test:web
+          pnpm -C apps/desktop/ui run build
+      - name: Helper quality gates
+        run: |
+          mise run lint:scripts
+          mise run test:scripts
+          mise run licenses:check
+          mise run version:check

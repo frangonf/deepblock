@@ -1,0 +1,6 @@
+# mbx's cached build-script replay drops tauri's colon-keyed links metadata
+# (DEP_TAURI_CORE:path__CORE_PLUGIN___PERMISSION_FILES_PATH), which
+# tauri-build needs to discover core ACL manifests. Without it
+# tauri::generate_context! panics with SetPermissionNotFound
+# "core:path:default". Cache hits are not worth broken ACL generation here.
+build_script_execution = false

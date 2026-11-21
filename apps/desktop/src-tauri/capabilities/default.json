@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Default capabilities for the DeepBlock desktop shell",
+  "windows": ["main"],
+  "permissions": ["core:default", "notification:default"]
+}

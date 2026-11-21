@@ -1,0 +1,44 @@
+packages:
+  - apps/desktop/ui
+
+minimumReleaseAge: 1440
+
+trustPolicy: no-downgrade
+
+trustPolicyExclude:
+  # Forced by `@babel/core@7` (pulled by eslint-plugin-react-hooks).
+  # semver 6.3.1 is the final patch of the legacy 6.x line and shipped without the
+  # provenance attestation that surrounding versions carried; famous, audited package,
+  # reviewed and pinned until the tree moves to babel 8 (which drops semver 6).
+  - "semver@6.3.1"
+  # WebDriver's Node 22 types require this version, which dropped provenance
+  # attestation. Development tooling only; remove when the types move on.
+  - "undici-types@6.21.0"
+  # pnpm 12.16.1 still flags this calendar peer's transition from trusted
+  # publishing to provenance attestation (pnpm issue #11887). Remove once
+  # the heuristic accepts it or the calendar resolves a newer signals release.
+  - "@preact/signals@2.9.1"
+
+blockExoticSubdeps: true
+strictPeerDependencies: true
+strictDepBuilds: true
+verifyStoreIntegrity: true
+strictStorePkgContentCheck: true
+preferFrozenLockfile: true
+saveExact: true
+engineStrict: true
+# No packageManager field in package.json: mise.toml is the single source of
+# truth for the pnpm version, so there is nothing for corepack to enforce.
+
+allowBuilds:
+  esbuild: true
+  # Browser-driver binaries downloaded at install time for Tauri WebDriver e2e tests.
+  edgedriver: true
+  geckodriver: true
+
+overrides:
+  # Audit fixes for WebDriver, ESLint and Stryker transitives. Remove each
+  # override when upstream ranges resolve to patched versions without it.
+  glob@>=9.0.0 <=14.0.1: 14.0.2
+  minimatch@<11.0.1: 11.0.1
+  qs@<6.16.1: 6.16.1

@@ -1,0 +1,5 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+#
+# To include any ignored findings, run:
+#   mise exec -- zizmor .github --offline --persona=auditor --no-ignores
+rules: {}

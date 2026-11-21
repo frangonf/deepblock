@@ -1,0 +1,54 @@
+amends "package://github.com/jdx/hk/releases/download/v2.11.0/hk@2.11.0#/Config.pkl"
+
+steps {
+    ["scripts"] {
+        glob = List("scripts/**/*.{ts,sh}", "scripts/tsconfig.json")
+        check = "mise run lint:scripts && mise run test:scripts"
+        exclusive = true
+    }
+    ["workflows"] {
+        glob = List(".github/**/*.{yml,yaml}")
+        check = "mise run actionlint && mise run actions:audit"
+        exclusive = true
+    }
+    ["version-agreement"] {
+        glob = List("Cargo.toml", "Cargo.lock", "apps/**/Cargo.toml", "package.json", "apps/desktop/ui/package.json", "apps/desktop/src-tauri/tauri.conf.json")
+        check = "mise run version:check"
+        exclusive = true
+    }
+    ["desktop-ui-lint"] {
+        glob = List("apps/desktop/ui/**/*.{ts,tsx,js,jsx,mjs}")
+        check = "pnpm -C apps/desktop/ui run lint"
+        exclusive = true
+    }
+    ["desktop-ui-typecheck"] {
+        glob = List("apps/desktop/ui/**/*.{ts,tsx}")
+        check = "pnpm -C apps/desktop/ui run typecheck"
+        exclusive = true
+    }
+    ["markdown"] {
+        glob = List("*.md", "**/*.md")
+        check = "node_modules/.bin/prettier --check $(git ls-files '*.md')"
+        fix = "node_modules/.bin/prettier --write $(git ls-files '*.md')"
+        exclusive = true
+    }
+    ["cargo-fmt"] {
+        glob = List("apps/**/*.rs")
+        check = "cargo fmt --all -- --check"
+        fix = "cargo fmt --all"
+    }
+    ["cargo-clippy"] {
+        glob = List("apps/**/*.rs")
+        check = "cargo clippy --workspace --all-targets -- -D warnings"
+    }
+}
+
+hooks {
+    ["commit-msg"] {
+        steps {
+            ["commitlint"] {
+                check = "pnpm commitlint --edit {{commit_msg_file}}"
+            }
+        }
+    }
+}

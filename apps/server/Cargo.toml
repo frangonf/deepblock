@@ -1,0 +1,41 @@
+[package]
+name = "deepblock-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "deepblock-server"
+
+[lib]
+name = "deepblock_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "deepblock-server"
+path = "src/main.rs"
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+reqwest.workspace = true
+rusqlite = { version = "=0.43.0", features = ["bundled", "backup"] }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+zip = { version = "=9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sha2 = "=0.11.1"
+futures-util.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+http-body-util.workspace = true
+tokio-tungstenite.workspace = true
+tower.workspace = true
+proptest = "=1.12.0"

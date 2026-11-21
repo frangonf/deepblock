@@ -1,0 +1,52 @@
+# Mutate every workspace package and use every workspace test against each mutant.
+# Cargo's runner also exercises doctests; native GUI tests remain separate.
+test_workspace = true
+additional_cargo_args = ["--locked"]
+minimum_test_timeout = 120.0
+timeout_multiplier = 2.0
+cap_lints = true
+
+# The desktop Tauri layer drives native windows, tray menus, file dialogs and
+# bundled process management through AppHandle, which no Cargo test can host.
+# Its pure helpers keep their unit tests and native behavior stays covered by
+# the separate Tauri runtime checks (see docs/testing.md).
+exclude_globs = ["apps/desktop/src-tauri/src/*"]
+
+# Equivalent or out-of-scope mutants: the mutation provably cannot change
+# observable behavior, or exercising it requires launching desktop programs.
+exclude_re = [
+    # Saturating `as u64` already clamps negative durations to zero.
+    "^apps/server/src/aw\\.rs:.*replace < with (==|<=) in rounded_seconds$",
+    # Extending a range to an identical end is a no-op.
+    "^apps/server/src/aw\\.rs:.*replace > with >= in merge_time_ranges$",
+    # Logging initialization has no test-observable behavior.
+    "^apps/server/src/lib\\.rs:.*replace init_tracing with \\(\\)$",
+    # Linux runs never take these platform arms; detected_system_install is
+    # already None off macOS.
+    "^apps/cli/src/activitywatch\\.rs:.*delete match arm \"(macos|windows)\" in recommended_steps$",
+    "^apps/cli/src/activitywatch\\.rs:.*replace detected_system_install -> Option<String> with None$",
+    # open_ui launches the user's browser; spawning desktop programs from
+    # Cargo tests is out of scope.
+    "^apps/cli/src/client\\.rs:.*replace DeepBlockClient::open_ui -> Result<\\(\\)> with Ok\\(\\(\\)\\)$",
+    # Query/fragment presence is already covered by the exact-origin
+    # comparison (an origin never contains ? or #), so degrading these two
+    # ORs cannot change acceptance.
+    "^apps/server/src/request_policy\\.rs:6[12]:17: replace \\|\\| with && in RequestPolicy::development$",
+    # Boundary-equality mutants on the bundle DoS size caps in write, read
+    # and entry_bytes: discriminating them needs payloads at an exact
+    # 64 MiB/16 MiB/1 GiB byte boundary (or GiB-scale fixtures); the
+    # degraded-ceiling (<) mutants are killed by tests.
+    "^apps/server/src/bundle\\.rs:.*replace > with (==|>=) in (write|read|entry_bytes)$",
+    # Killing the || in the manifest-size guard needs a 16 MiB manifest
+    # (~123k archive entries) or a 1 GiB total - disproportionate for a
+    # local limit check whose arms are covered separately.
+    "^apps/server/src/bundle\\.rs:.*replace \\|\\| with && in write$",
+    # Negating the collision guard in Block::from_request turns id
+    # generation into a retry loop that only exits on a 2^-32 collision,
+    # so every test hangs (reported as a timeout) instead of failing.
+    "^apps/server/src/models\\.rs:147:60: replace != with == in Block::from_request$",
+    # take(limit + 1) is a defensive read cap for lying archives; the *
+    # variant only differs at an exact declared-size boundary that CRC and
+    # size validation already reject.
+    "^apps/server/src/bundle\\.rs:.*replace \\+ with \\* in entry_bytes$",
+]
