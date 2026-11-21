@@ -35,7 +35,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash scripts/pr-paths.sh
       - name: Set up mise
-        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.25
           install: false
@@ -67,7 +67,7 @@ jobs:
         with:
           profile: desktop
       - name: Set up mise
-        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.25
           install: false
@@ -108,7 +108,7 @@ jobs:
         with:
           profile: desktop
       - name: Set up mise
-        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.25
           install: false
@@ -116,7 +116,7 @@ jobs:
       - name: Install locked Rust toolchain
         run: mise install --locked rust mr-boxington
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
         with:
           tool: cargo-nextest@0.9.150
       - name: Restore Rust cache
@@ -146,7 +146,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up mise
-        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.25
           install: false
