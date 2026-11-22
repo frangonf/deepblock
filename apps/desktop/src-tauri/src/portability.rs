@@ -1,6 +1,9 @@
 //! Narrow file-dialog bridge. Only the chosen file is read/written; the backend owns storage.
 use crate::DesktopRuntimeState;
-use std::io::Write;
+use std::{
+    io::Write,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -36,6 +39,29 @@ pub async fn desktop_import_preview(
     let Some(path) = choose(&app, false, "").await? else {
         return Ok(None);
     };
+    let base = app.state::<DesktopRuntimeState>().api_base_url.clone();
+    import_preview(&base, &path).await.map(Some)
+}
+
+async fn import_preview(base: &str, path: &std::path::Path) -> Result<serde_json::Value, String> {
+    let invalid_endpoint = "Import preview requires a loopback HTTP(S) endpoint";
+    let mut url = reqwest::Url::parse(base).map_err(|_| invalid_endpoint)?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+    {
+        return Err(invalid_endpoint.into());
+    }
+    url.path_segments_mut()
+        .map_err(|_| invalid_endpoint)?
+        .pop_if_empty()
+        .extend(["storage", "import", "preview"]);
+
     let file = tokio::fs::File::open(path)
         .await
         .map_err(|e| e.to_string())?;
@@ -44,9 +70,19 @@ pub async fn desktop_import_preview(
     {
         return Err("Import exceeds 1 GiB".into());
     }
-    let base = app.state::<DesktopRuntimeState>().api_base_url.clone();
-    let response = reqwest::Client::new()
-        .post(format!("{base}/storage/import/preview"))
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(
+            "localhost",
+            &[
+                SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                SocketAddr::from((Ipv6Addr::LOCALHOST, 0)),
+            ],
+        )
+        .build()
+        .map_err(|e| e.to_string())?
+        .post(url)
         .header("Content-Type", "application/octet-stream")
         .body(reqwest::Body::wrap_stream(
             tokio_util::io::ReaderStream::new(file),
@@ -60,7 +96,7 @@ pub async fn desktop_import_preview(
             .await
             .unwrap_or_else(|_| "Import preview failed".into()));
     }
-    response.json().await.map(Some).map_err(|e| e.to_string())
+    response.json().await.map_err(|e| e.to_string())
 }
 #[tauri::command]
 pub async fn desktop_export_bundle(app: tauri::AppHandle, recovery: bool) -> Result<bool, String> {
@@ -124,4 +160,84 @@ pub async fn desktop_export_drafts(app: tauri::AppHandle, content: String) -> Re
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_preview;
+    use std::time::Duration;
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+        net::TcpListener,
+    };
+
+    #[tokio::test]
+    async fn import_rejects_non_loopback_http_endpoints_before_opening_the_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_archive = dir.path().join("missing.zip");
+        for base in [
+            "http://example.invalid:5605",
+            "http://localhost.example.invalid:5605",
+            "http://localhost@example.invalid:5605",
+            "http://0.0.0.0:5605",
+            "http://192.0.2.1:5605",
+            "http://[::]:5605",
+            "ftp://127.0.0.1:5605",
+            "not a URL",
+        ] {
+            let error = import_preview(base, &missing_archive).await.unwrap_err();
+            assert_eq!(
+                error, "Import preview requires a loopback HTTP(S) endpoint",
+                "{base}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn import_accepts_explicit_loopback_endpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_archive = dir.path().join("missing.zip");
+        let missing_error = std::fs::File::open(&missing_archive)
+            .unwrap_err()
+            .to_string();
+        for base in [
+            "http://localhost:8081",
+            "http://127.0.0.2:5605",
+            "https://[::1]:8443",
+        ] {
+            let error = import_preview(base, &missing_archive).await.unwrap_err();
+            assert_eq!(error, missing_error, "{base}");
+        }
+    }
+
+    #[tokio::test]
+    async fn import_does_not_follow_redirects() {
+        let archive = tempfile::NamedTempFile::new().unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let redirect = async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            drop(listener);
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            assert_eq!(line, "POST /storage/import/preview HTTP/1.1\r\n");
+            loop {
+                line.clear();
+                if stream.read_line(&mut line).await.unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            stream.get_mut().write_all(
+                b"HTTP/1.1 303 See Other\r\nLocation: /other\r\nContent-Length: 8\r\nConnection: close\r\n\r\nredirect",
+            ).await.unwrap();
+            stream
+        };
+        let (result, _connection) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(import_preview(&base, archive.path()), redirect)
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap_err(), "redirect");
+    }
 }

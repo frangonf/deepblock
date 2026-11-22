@@ -35,8 +35,10 @@ SQLite backup/restore commands remain available as an offline recovery mechanism
 ## Live replacement and recovery
 
 Preview validates the upload and displays current/incoming counts and dates,
-plus notes added, overwritten and removed. ZIP validation rejects unexpected or
-missing entries, duplicates, unsafe paths, symlinks, unsupported versions,
+plus notes added, overwritten and removed. The native desktop importer sends
+archives only to a loopback backend, without using proxies or following redirects.
+ZIP validation rejects unexpected or missing entries, duplicates, unsafe paths,
+symlinks, unsupported versions,
 checksum mismatches and excessive expansion. Staging never extracts arbitrary
 archive paths. Structured JSON is limited to 64 MiB; uploaded and expanded ZIP
 contents are limited to 1 GiB. Export fails rather than silently truncating data.
