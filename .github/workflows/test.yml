@@ -9,7 +9,7 @@ on:
       - "README.md"
       - "AGENTS.md"
       - ".gitignore"
-  pull_request:
+  pull_request: {} # Keep required PR checks reporting; filter jobs below.
 
 permissions: {}
 
