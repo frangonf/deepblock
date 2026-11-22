@@ -25,7 +25,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 pub fn app(state: AppState) -> Router {
@@ -51,10 +51,24 @@ pub async fn serve(host_override: Option<String>, port_override: Option<u16>) ->
         ))
     })?;
     let state = AppState::load().await?;
-    let settings = state.settings.read().await.clone();
-    let host = host_override.unwrap_or(settings.server.host);
-    let port = port_override.unwrap_or(settings.server.port);
-    let addr: SocketAddr = format!("{host}:{port}").parse()?;
+    let endpoint = state
+        .settings
+        .read()
+        .await
+        .server
+        .clone()
+        .with_env_overrides();
+    let host = host_override.unwrap_or(endpoint.host);
+    let port = port_override.unwrap_or(endpoint.port);
+    let addr = match host.parse() {
+        Ok(ip) => SocketAddr::new(ip, port),
+        Err(_) => format!("{host}:{port}").parse()?,
+    };
+    if !addr.ip().is_loopback() {
+        return Err(AppError::BadRequest(
+            "DeepBlock server must bind to a loopback IP address (127.0.0.1 or ::1)".into(),
+        ));
+    }
 
     let listener = TcpListener::bind(addr).await?;
     state.write_server_runtime(&host, port)?;

@@ -371,9 +371,11 @@ pub async fn resolve_base_url(explicit: Option<String>) -> Result<String> {
     if let Some(url) = discover_server(&paths, None).await? {
         return Ok(url);
     }
-    let settings = load_settings(&paths)?;
     Ok(if paths.config_file().exists() {
-        format!("http://{}:{}", settings.server.host, settings.server.port)
+        load_settings(&paths)?
+            .server
+            .with_env_overrides()
+            .base_url()
     } else {
         DEFAULT_SERVER_URL.to_string()
     })

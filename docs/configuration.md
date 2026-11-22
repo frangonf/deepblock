@@ -53,10 +53,12 @@ urgency = "normal"
 
 ### `[server]`
 
-| Key    | Default     | Notes                    |
-| ------ | ----------- | ------------------------ |
-| `host` | `127.0.0.1` | Rust server bind address |
-| `port` | `8000`      | Rust server port         |
+| Key    | Default     | Notes                                            |
+| ------ | ----------- | ------------------------------------------------ |
+| `host` | `127.0.0.1` | Loopback IP address, such as `127.0.0.1` or `::1` |
+| `port` | `8000`      | Rust server port                                 |
+
+Non-loopback and wildcard bind addresses are rejected. To reach a backend running on another machine, keep it on loopback there and use an SSH tunnel.
 
 ### `[client]`
 
@@ -200,14 +202,16 @@ curl -X PATCH http://127.0.0.1:8000/config -H "Content-Type: application/json" -
 
 ## Environment overrides
 
-| Variable                | Purpose                         |
-| ----------------------- | ------------------------------- |
-| `XDG_CONFIG_HOME`       | Config root override            |
-| `XDG_DATA_HOME`         | Data root override              |
-| `XDG_STATE_HOME`        | State root override             |
-| `DEEPBLOCK_SERVER_HOST` | Server host override            |
-| `DEEPBLOCK_SERVER_PORT` | Server port override            |
-| `DEEPBLOCK_SERVER_URL`  | Client-side server URL override |
+| Variable                | Purpose                             |
+| ----------------------- | ----------------------------------- |
+| `XDG_CONFIG_HOME`       | Config root override                |
+| `XDG_DATA_HOME`         | Data root override                  |
+| `XDG_STATE_HOME`        | State root override                 |
+| `DEEPBLOCK_SERVER_HOST` | Process-only loopback host override |
+| `DEEPBLOCK_SERVER_PORT` | Process-only server port override   |
+| `DEEPBLOCK_SERVER_URL`  | Client-side server URL override     |
+
+`deepb serve` flags take precedence over the environment, which takes precedence over `[server]`. Saving Settings does not persist the process overrides.
 
 ### Development-only network configuration
 

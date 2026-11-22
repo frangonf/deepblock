@@ -13,6 +13,31 @@ impl Drop for Server {
     }
 }
 
+#[tokio::test]
+async fn server_rejects_a_non_loopback_bind_before_opening_a_listener() {
+    let dir = tempdir().expect("tempdir");
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_deepblock-server"))
+            .kill_on_drop(true)
+            .env("XDG_DATA_HOME", dir.path().join("data"))
+            .env("XDG_CONFIG_HOME", dir.path().join("config"))
+            .env("XDG_STATE_HOME", dir.path().join("state"))
+            .env("DEEPBLOCK_SERVER_HOST", "192.0.2.1")
+            .env("DEEPBLOCK_SERVER_PORT", "0")
+            .output(),
+    )
+    .await
+    .expect("server must exit promptly")
+    .expect("server process");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("must bind to a loopback IP address"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn second_process_cannot_write_the_same_storage_root() {
     let dir = tempdir().expect("tempdir");

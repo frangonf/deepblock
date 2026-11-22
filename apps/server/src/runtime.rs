@@ -55,13 +55,7 @@ pub async fn discover_server(
         }
         return Err(AppError::BadRequest("DeepBlock storage already has a writer, but its backend is unavailable or incompatible. Stop that owner before starting a replacement.".into()));
     }
-    let settings = load_settings(paths)?;
-    let configured = ServerRuntime {
-        pid: 0,
-        host: settings.server.host,
-        port: settings.server.port,
-    }
-    .base_url();
+    let configured = load_settings(paths)?.server.with_env_overrides().base_url();
     for url in [&configured, DEFAULT_SERVER_URL] {
         if is_healthy_server(url).await {
             return Ok(Some(url.to_string()));

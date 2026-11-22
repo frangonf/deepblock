@@ -29,7 +29,10 @@ impl Drop for Server {
 }
 
 async fn start(origins: Option<&str>, mode: bool) -> Server {
-    let root = tempdir().expect("tempdir");
+    start_in(tempdir().expect("tempdir"), origins, mode).await
+}
+
+async fn start_in(root: TempDir, origins: Option<&str>, mode: bool) -> Server {
     let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("port");
     let port = socket.local_addr().expect("address").port();
     drop(socket);
@@ -71,6 +74,38 @@ async fn start(origins: Option<&str>, mode: bool) -> Server {
         tokio::time::sleep(Duration::from_millis(30)).await;
     }
     panic!("server did not start");
+}
+
+#[tokio::test]
+async fn saving_client_settings_does_not_persist_runtime_endpoint() {
+    let root = tempdir().expect("tempdir");
+    let config = root.path().join("config/deepblock/config.toml");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, "[server]\nhost = '127.0.0.2'\nport = 8001\n").unwrap();
+    let server = start_in(root, None, false).await;
+
+    let client = client();
+    let config_url = format!("{}/config", server.url);
+    let generation_header = "x-deepblock-dataset-generation";
+    let config_response = client.get(&config_url).send().await.unwrap();
+    client
+        .patch(config_url)
+        .header(
+            generation_header,
+            &config_response.headers()[generation_header],
+        )
+        .json(&serde_json::json!({"default_duration": 45}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let saved: deepblock_server::config::Settings =
+        toml::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    assert_eq!(saved.client.blocks.default_duration, 45);
+    assert_eq!(saved.server.host, "127.0.0.2");
+    assert_eq!(saved.server.port, 8001);
 }
 
 #[tokio::test]

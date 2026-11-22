@@ -27,7 +27,34 @@ pub struct ServerRuntime {
 
 impl ServerRuntime {
     pub fn base_url(&self) -> String {
-        format!("http://{}:{}", self.host, self.port)
+        server_base_url(&self.host, self.port)
+    }
+}
+
+fn server_base_url(host: &str, port: u16) -> String {
+    if host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
+    }
+}
+
+impl ServerConfig {
+    /// Process-only endpoint overrides; keep them out of persisted settings.
+    pub fn with_env_overrides(mut self) -> Self {
+        if let Ok(host) = env::var("DEEPBLOCK_SERVER_HOST") {
+            self.host = host;
+        }
+        if let Ok(port) = env::var("DEEPBLOCK_SERVER_PORT")
+            && let Ok(port) = port.parse::<u16>()
+        {
+            self.port = port;
+        }
+        self
+    }
+
+    pub fn base_url(&self) -> String {
+        server_base_url(&self.host, self.port)
     }
 }
 
@@ -243,18 +270,6 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn apply_env_overrides(&mut self) {
-        if let Ok(host) = env::var("DEEPBLOCK_SERVER_HOST") {
-            self.server.host = host;
-        }
-
-        if let Ok(port) = env::var("DEEPBLOCK_SERVER_PORT")
-            && let Ok(port) = port.parse::<u16>()
-        {
-            self.server.port = port;
-        }
-    }
-
     pub fn as_client_config(&self) -> ClientConfigResponse {
         ClientConfigResponse {
             default_revision_copy_mode: self.client.default_revision_copy_mode,
@@ -447,13 +462,12 @@ impl DeepBlockPaths {
 }
 
 pub fn load_settings(paths: &DeepBlockPaths) -> AppResult<Settings> {
-    let mut settings = if paths.config_file().exists() {
-        persist::read_toml_file::<Settings>(&paths.config_file())?
+    let path = paths.config_file();
+    if path.exists() {
+        persist::read_toml_file(&path)
     } else {
-        Settings::default()
-    };
-    settings.apply_env_overrides();
-    Ok(settings)
+        Ok(Settings::default())
+    }
 }
 
 pub fn save_settings(paths: &DeepBlockPaths, settings: &Settings) -> AppResult<()> {
