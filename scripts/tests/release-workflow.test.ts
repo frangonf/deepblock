@@ -41,16 +41,15 @@ test('routine CI shares local desktop and browser dependency setup', () => {
   assert.doesNotMatch(ci, /playwright install --with-deps/);
 });
 
-test('docs-only PRs still report the required checks, with expensive jobs skipped', () => {
+test('lightweight PRs still report the required checks, with expensive jobs skipped', () => {
   assert.match(ci, /^ {2}workflow_dispatch:$/m);
-  assert.match(ci, /^ {2}push:\n {4}branches: \[main\]\n {4}paths-ignore:\n {6}- "docs\/\*\*"\n {6}- "README\.md"\n {6}- "AGENTS\.md"$/m);
-  assert.match(ci, /^ {2}pull_request:\n\npermissions:/m);
+  assert.match(ci, /^ {2}push:\n {4}branches: \[main\]\n {4}paths-ignore:\n {6}- "docs\/\*\*"\n {6}- "README\.md"\n {6}- "AGENTS\.md"\n {6}- "\.gitignore"\n {2}pull_request:\n\npermissions:/m);
   const lint = job('actions', ci);
   assert.match(lint, /fetch-depth: .*github\.event_name == 'pull_request' && '2'/);
-  assert.match(lint, /docs-only: \$\{\{ steps\.paths\.outputs\.docs-only \}\}/);
+  assert.match(lint, /lightweight-only: \$\{\{ steps\.paths\.outputs\.lightweight-only \}\}/);
   assert.match(lint, /if: github\.event_name == 'pull_request'\n {8}run: bash scripts\/pr-paths\.sh/);
   for (const name of ['rust-lint', 'rust-test', 'desktop-ui']) {
-    assert.match(job(name, ci), /^ {4}needs: actions\n {4}if: needs\.actions\.outputs\.docs-only != 'true'$/m);
+    assert.match(job(name, ci), /^ {4}needs: actions\n {4}if: needs\.actions\.outputs\.lightweight-only != 'true'$/m);
   }
 });
 

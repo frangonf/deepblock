@@ -302,9 +302,9 @@ Repeat with the Debian 13 image pinned in `release.yml`. Check the artifact's so
 
 All test jobs run on GitHub-hosted `ubuntu-26.04` runners so public pull requests do not execute untrusted code on a self-hosted machine.
 
-`.github/workflows/test.yml` runs on main pushes, PRs, and manual dispatch. Pushes and PRs changing only `docs/**`, root `README.md`, or root `AGENTS.md` skip the workflow; mixed documentation/code changes and manual dispatch still run all jobs.
+`.github/workflows/test.yml` runs on pushes to `main`, PRs, and manual dispatch. If changes are limited to `docs/**` or root `README.md`, `AGENTS.md`, and `.gitignore`, PRs run Workflow lint and skip the three expensive jobs. Pushes to `main` with only those changes skip the workflow. Other changes, manual dispatch, and PRs whose diff cannot be determined run all jobs.
 
-Path-filtered workflows leave required checks pending. Before enabling required status checks for this workflow, switch to job-level skipping so docs-only PRs can still merge.
+Keep path filtering at the job level for PRs. Skipping the entire workflow would leave the required checks pending and block merging.
 
 Jobs:
 

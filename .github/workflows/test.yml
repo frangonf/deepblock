@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - "README.md"
       - "AGENTS.md"
+      - ".gitignore"
   pull_request:
 
 permissions: {}
@@ -24,13 +25,13 @@ jobs:
     permissions:
       contents: read # Check out workflows for syntax validation.
     outputs:
-      docs-only: ${{ steps.paths.outputs.docs-only }}
+      lightweight-only: ${{ steps.paths.outputs.lightweight-only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
-      - name: Check for docs-only PR changes
+      - name: Check for lightweight-only PR changes
         id: paths
         if: github.event_name == 'pull_request'
         run: bash scripts/pr-paths.sh
@@ -48,7 +49,7 @@ jobs:
   rust-lint:
     name: Rust lint
     needs: actions
-    if: needs.actions.outputs.docs-only != 'true'
+    if: needs.actions.outputs.lightweight-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -86,7 +87,7 @@ jobs:
   rust-test:
     name: Rust tests
     needs: actions
-    if: needs.actions.outputs.docs-only != 'true'
+    if: needs.actions.outputs.lightweight-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
@@ -136,7 +137,7 @@ jobs:
   desktop-ui:
     name: Desktop UI
     needs: actions
-    if: needs.actions.outputs.docs-only != 'true'
+    if: needs.actions.outputs.lightweight-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
