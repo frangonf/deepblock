@@ -27,32 +27,44 @@ function fixture(t: TestContext) {
   return { root, git, commit, run, output };
 }
 
-test('only docs and root README/AGENTS changes skip the expensive checks', (t) => {
+test('a root .gitignore change alone skips the expensive checks', (t) => {
+  const { root, commit, run, output } = fixture(t);
+  writeFileSync(path.join(root, '.gitignore'), '*.local\n');
+  commit();
+
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(output, 'utf8'), 'lightweight-only=true\n');
+});
+
+test('docs and root metadata changes together skip the expensive checks', (t) => {
   const { root, commit, run, output } = fixture(t);
   mkdirSync(path.join(root, 'docs', 'nested'));
   writeFileSync(path.join(root, 'docs', 'nested', 'guide.md'), '# Nested\n');
   writeFileSync(path.join(root, 'README.md'), '# DeepBlock\n');
   writeFileSync(path.join(root, 'AGENTS.md'), '# Agents\n');
+  writeFileSync(path.join(root, '.gitignore'), '*.local\n');
   commit();
 
   const result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(output, 'utf8'), 'docs-only=true\n');
+  assert.equal(readFileSync(output, 'utf8'), 'lightweight-only=true\n');
 });
 
-test('mixed changes, including moving a source file into docs, still run the checks', (t) => {
+test('mixing .gitignore with a source move into docs still runs the checks', (t) => {
   const { root, git, commit, run, output } = fixture(t);
   git('mv', 'app.ts', 'docs/app.ts');
-  writeFileSync(path.join(root, 'docs', 'guide.md'), '# Updated guide\n');
+  writeFileSync(path.join(root, '.gitignore'), '*.local\n');
   commit();
 
   const result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(output, 'utf8'), 'docs-only=false\n');
+  assert.equal(readFileSync(output, 'utf8'), 'lightweight-only=false\n');
 });
 
-test('a missing comparison parent fails closed', (t) => {
-  const { run } = fixture(t);
+test('a missing comparison parent requests the full checks', (t) => {
+  const { run, output } = fixture(t);
   const result = run();
-  assert.equal(result.status, 128, result.stderr);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(output, 'utf8'), 'lightweight-only=false\n');
 });

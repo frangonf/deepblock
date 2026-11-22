@@ -84,7 +84,7 @@ pnpm run test:e2e:tauri
 
 ### CI
 
-`.github/workflows/test.yml` runs on push to `main`, pull requests, and on manual dispatch (`workflow_dispatch`). Pushes/PRs changing only `docs/**`, root `README.md`, or root `AGENTS.md` skip it; mixed changes and manual dispatch still run all jobs. Before making these checks required, use job-level skipping to avoid pending checks on docs-only PRs. Jobs:
+`.github/workflows/test.yml` runs on push to `main`, pull requests, and on manual dispatch (`workflow_dispatch`). Changes limited to `docs/**` or root `README.md`, `AGENTS.md`, and `.gitignore` run only Workflow lint on PRs and skip the workflow on pushes to `main`. Other changes and manual dispatch run all jobs. Keep PR filtering at the job level so skipped jobs satisfy required checks. Jobs:
 
 - **Workflow lint** — `actionlint` over `.github/workflows/` (catches workflow syntax errors; the `zizmor` security audit runs **local-only** via `mise run actions:audit` / the pre-commit hook)
 - **Rust lint** — Cargo formatting and clippy (`-D warnings`)
