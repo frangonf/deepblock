@@ -27,6 +27,7 @@ planning.sqlite3-*
 plan-export.zip
 deepblock-export.zip
 deepblock-recovery.zip
+deepblock-unsaved-drafts.json
 
 # Generated test reports can contain local environment details
 snapshot_report.html
