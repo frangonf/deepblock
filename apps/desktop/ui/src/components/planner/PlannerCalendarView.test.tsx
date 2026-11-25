@@ -129,38 +129,23 @@ describe('PlannerCalendarView', () => {
   });
 
   describe('revisionTimeWindow', () => {
-    it('uses full-day boundaries for the active planner column by default', () => {
-      const result = revisionTimeWindow({
-        revision: makeRevision('A', []),
-        config: undefined,
-        slotStep: 15,
-        compact: false,
-      });
+    it('uses full-day boundaries for revision columns by default', () => {
+      const result = revisionTimeWindow({});
 
       expect(result).toEqual({
         startBoundary: 0,
         endBoundary: 1440,
         gridHeight: 1440,
-        eventWidth: 96,
       });
     });
 
-    it('compacts history columns around the revision blocks', () => {
-      const result = revisionTimeWindow({
-        revision: makeRevision('A', [
-          makeBlock({ id: 'block-1', start: '09:00', duration: 60 }),
-          makeBlock({ id: 'block-2', start: '12:00', duration: 120 }),
-        ]),
-        config: undefined,
-        slotStep: 15,
-        compact: true,
-      });
+    it('scales the grid without changing the time boundaries', () => {
+      const result = revisionTimeWindow({ gridScale: 1.25 });
 
       expect(result).toEqual({
-        startBoundary: 480,
-        endBoundary: 900,
-        gridHeight: 294,
-        eventWidth: 88,
+        startBoundary: 0,
+        endBoundary: 1440,
+        gridHeight: 1800,
       });
     });
   });
@@ -170,13 +155,13 @@ describe('PlannerCalendarView', () => {
       const { onCommitDraft, onDiscardDraft } = renderPlannerCalendarView();
 
       fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
-      expect(screen.getByText('Plan revisions')).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Plan revisions' })).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Hide history' }));
-      expect(screen.queryByText('Plan revisions')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Plan revisions' })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
-      expect(screen.getByText('Plan revisions')).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Plan revisions' })).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('planner-discard-draft'));
       fireEvent.click(screen.getByTestId('planner-commit-replan'));

@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 const steps = [
   ['Plan your day', 'Choose today or a future date. Add blocks with a start time, duration and type. Calendar and list show the same plan.'],
   ['Save a revised plan', 'Edits stay in a draft until you save. Save revised plan appends a revision and keeps your previous plan. Discard drops only unsaved edits.'],
-  ['Review what changed', 'Compare two saved revisions. Past plans are read-only; your history remains available.'],
+  ['Review what changed', 'Choose Show history in the calendar to see saved revisions side by side, or use Compare to inspect changes between two revisions.'],
   ['Record what happened', 'Edit a block to record a focus rating or attach output. Reality runs today’s local ActivityWatch audit; Review shows findings and how much evidence is available.'],
   ['Capture and reflect', 'Backlog holds unscheduled tasks. Schedule today opens a prefilled block. Notes saves Markdown for the selected day.'],
 ];

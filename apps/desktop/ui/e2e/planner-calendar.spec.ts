@@ -319,6 +319,73 @@ test('calendar and list share a draft, with explicit save and discard', async ({
   await expect(page.getByTestId('calendar-resource-header')).toHaveCount(1);
 });
 
+test('history shows read-only revision columns aligned to the current timeline', async ({ page, request }) => {
+  const date = '2041-07-10';
+  const commit = async (label: string, start: string) => {
+    const response = await request.post(`http://127.0.0.1:8010/plan/replan?date=${date}`, {
+      data: { operations: [{ op: 'create', label, start, duration: 30, type: 'focus' }] },
+    });
+    expect(response.ok()).toBe(true);
+  };
+  await commit('Shared anchor', '12:00');
+  await commit('Second revision block', '13:00');
+  await commit('Current revision block', '14:00');
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/planner?date=${date}`);
+  const active = page.getByTestId('planner-calendar');
+  const activeScroll = active.getByTestId('planner-calendar-column');
+  await active.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).scrollIntoViewIfNeeded();
+  await page.getByRole('button', { name: 'Show history', exact: true }).click();
+  const strip = page.getByRole('region', { name: 'Plan revisions' });
+  await expect(strip).toBeVisible({ timeout: 5000 });
+  const previous = strip.getByRole('region', { name: 'Revision B', exact: true });
+  const earliest = strip.getByRole('region', { name: 'Revision A', exact: true });
+  const previousScroll = previous.getByTestId('planner-calendar-column');
+  const earliestScroll = earliest.getByTestId('planner-calendar-column');
+  await expect(previous.getByTestId('calendar-event').filter({ hasText: 'Second revision block' })).toHaveCount(1);
+  await expect(earliest.getByTestId('calendar-event')).toHaveCount(1);
+  await expect(active.getByTestId('calendar-event').filter({ hasText: 'Current revision block' })).toHaveCount(1);
+
+  const position = (column: typeof activeScroll) => column.evaluate((element) => element.scrollTop);
+  const initial = await position(activeScroll);
+  expect(initial).toBeGreaterThan(0);
+  await expect.poll(() => position(previousScroll)).toBe(initial);
+  await expect.poll(() => position(earliestScroll)).toBe(initial);
+  const currentAnchor = (await active.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
+  const previousAnchor = (await previous.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
+  const earliestAnchor = (await earliest.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
+  expect(currentAnchor.x).toBeLessThan(previousAnchor.x);
+  expect(previousAnchor.x).toBeLessThan(earliestAnchor.x);
+  expect(previousAnchor.y).toBeCloseTo(currentAnchor.y, 0);
+  expect(earliestAnchor.y).toBeCloseTo(currentAnchor.y, 0);
+
+  await previousScroll.evaluate((element) => { element.scrollTop += 90; });
+  const updated = await position(previousScroll);
+  await expect.poll(() => position(activeScroll)).toBe(updated);
+  await expect.poll(() => position(earliestScroll)).toBe(updated);
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await expect.poll(() => position(activeScroll)).toBeCloseTo(updated * 1.25, -1);
+  await expect.poll(async () => (await position(earliestScroll)) - (await position(activeScroll))).toBe(0);
+
+  const readOnly = previous.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' });
+  await expect(readOnly.locator('.sx__time-grid-event-resize-handle')).toHaveCount(0);
+  await readOnly.click();
+  await expect(page.getByTestId('planner-inline-editor')).toHaveCount(0);
+
+  const currentBlock = active.getByRole('button', { name: /^Current revision block,/ });
+  await currentBlock.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  const block = (await currentBlock.boundingBox())!;
+  const grid = (await active.locator('.sx__time-grid-day').boundingBox())!;
+  const x = block.x + block.width / 2;
+  const y = block.y + 10;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + grid.height / 48, { steps: 4 });
+  await page.mouse.up();
+  await expect(currentBlock).toHaveAccessibleName(/^Current revision block, 14:30 to 15:00,/);
+});
+
 test('late display settings keep calendar clicks aligned with the visible hours', async ({ page, request }) => {
   const date = '2041-07-01';
   const label = `Configured calendar ${Date.now()}`;

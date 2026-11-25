@@ -201,20 +201,23 @@ test('semantic themes preserve readable action states and independent status col
   await expect(action).toHaveCSS('outline-width', '2px');
 });
 
-test('narrow history opens a modal and returns keyboard focus', async ({ page, request }) => {
+test('narrow history scrolls between columns and returns keyboard focus', async ({ page, request }) => {
   const firstIntent = `First intent ${Date.now()}`;
   for (const reason of [firstIntent, 'Updated intent']) {
     expect((await request.post(`${api}/plan/revise`, { data: { reason, copy_mode: 'all' } })).ok()).toBeTruthy();
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/planner');
-  const trigger = page.getByRole('button', { name: 'Show history' });
+  const trigger = page.getByRole('button', { name: /^(Show|Hide) history$/ });
   await trigger.click();
-  const drawer = page.getByRole('dialog', { name: 'Plan revisions' });
-  await expect(drawer).toBeVisible();
-  await expect(drawer.getByText(firstIntent)).toBeVisible();
+  const strip = page.getByRole('region', { name: 'Plan revisions' });
+  await expect(strip).toBeVisible();
+  await expect(strip.getByText(firstIntent)).toBeVisible();
+  await strip.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
-  await expect(drawer).toBeHidden();
+  await expect(strip).toBeHidden();
   await expect(trigger).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

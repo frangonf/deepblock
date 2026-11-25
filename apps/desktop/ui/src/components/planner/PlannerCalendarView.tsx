@@ -2,6 +2,7 @@ import { useThemeMode } from "@/hooks/use-theme-mode";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -30,7 +31,6 @@ import type {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { BlockFields, useBlockForm } from "./BlockFields";
 import {
   typeOptions,
@@ -47,6 +47,7 @@ import { applyDraftUpdate, type DraftBlockInput } from "@/components/planner/cal
 
 const dayView = createViewDay();
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const eventWidth = 96;
 
 const sharedCalendars = Object.fromEntries(
   typeOptions.map((type) => [
@@ -132,10 +133,6 @@ function formatDayBoundary(totalMinutes: number) {
 
 function floorToHour(totalMinutes: number) {
   return Math.floor(totalMinutes / 60) * 60;
-}
-
-function ceilToHour(totalMinutes: number) {
-  return Math.ceil(totalMinutes / 60) * 60;
 }
 
 function zonedDateTimeAt(date: string, time: string) {
@@ -514,58 +511,23 @@ function findBlockElement(surface: HTMLElement | null, blockId: string) {
 }
 
 export function revisionTimeWindow({
-  revision,
   config,
-  slotStep,
-  compact,
   gridScale = 1,
 }: {
-  revision: Revision;
   config?: ClientConfig;
-  slotStep: number;
-  compact: boolean;
   gridScale?: number;
 }) {
-  const defaultStartBoundary = (config?.start_hour ?? 0) * 60;
-  const defaultEndBoundary = (config?.end_hour ?? 24) * 60;
+  const startBoundary = (config?.start_hour ?? 0) * 60;
+  const endBoundary = (config?.end_hour ?? 24) * 60;
   const defaultGridHeight = Math.max(
     900,
-    ((config?.end_hour ?? 24) - (config?.start_hour ?? 0)) *
-      60 *
-      Math.max(1, config?.pixels_per_minute ?? 1),
+    (endBoundary - startBoundary) * Math.max(1, config?.pixels_per_minute ?? 1),
   );
-
-  if (!compact || revision.blocks.length === 0) {
-    return {
-      startBoundary: defaultStartBoundary,
-      endBoundary: defaultEndBoundary,
-      gridHeight: Math.round(defaultGridHeight * (compact ? 1 : gridScale)),
-      eventWidth: 96,
-    };
-  }
-
-  const previewPadding = Math.max(30, slotStep * 2);
-  const earliestStart = Math.min(
-    ...revision.blocks.map((block) => parseTime(block.start)),
-  );
-  const latestEnd = Math.max(
-    ...revision.blocks.map((block) => parseTime(block.start) + block.duration),
-  );
-  const compactStart = Math.max(
-    defaultStartBoundary,
-    floorToHour(earliestStart - previewPadding),
-  );
-  const compactEnd = Math.min(
-    defaultEndBoundary,
-    ceilToHour(latestEnd + previewPadding),
-  );
-  const spanMinutes = Math.max(120, compactEnd - compactStart);
 
   return {
-    startBoundary: compactStart,
-    endBoundary: compactEnd,
-    gridHeight: Math.max(260, Math.min(420, Math.round(spanMinutes * 0.7))),
-    eventWidth: 88,
+    startBoundary,
+    endBoundary,
+    gridHeight: Math.round(defaultGridHeight * gridScale),
   };
 }
 
@@ -580,11 +542,11 @@ type RevisionCalendarColumnProps = {
   selectedDate: string;
   config?: ClientConfig;
   isEditable: boolean;
-  compact?: boolean;
   showCurrentTimeLine: boolean;
   showHistory?: boolean;
   scrollPositions?: RefObject<Map<string, number>>;
   gridScale?: number;
+  onColumnScroll?: (column: HTMLElement) => void;
   onDraftCreate?: (input: DraftBlockInput) => Block;
   onDraftUpdate?: (blockId: string, payload: Record<string, unknown>) => void;
   onDraftDelete?: (blockId: string) => void;
@@ -594,10 +556,7 @@ function RevisionCalendarColumn(props: RevisionCalendarColumnProps) {
   const themeMode = useThemeMode();
   const slotStep = Math.max(5, props.config?.rounding_interval ?? 15);
   const timeWindow = revisionTimeWindow({
-    revision: props.revision,
     config: props.config,
-    slotStep,
-    compact: props.compact ?? false,
     gridScale: props.gridScale,
   });
   // The React adapter initializes config/plugins once. Recreate that runtime
@@ -626,10 +585,10 @@ function RevisionCalendarRuntime({
   selectedDate,
   config,
   isEditable,
-  compact = false,
   showCurrentTimeLine,
   showHistory = false,
   scrollPositions,
+  onColumnScroll,
   onDraftCreate,
   onDraftUpdate,
   onDraftDelete,
@@ -653,7 +612,7 @@ function RevisionCalendarRuntime({
   const gridStep = scheduleGridStep(config?.rounding_interval);
   const defaultDuration = config?.default_duration ?? 60;
   const timeFormat = config?.time_format ?? "24h";
-  const { startBoundary, endBoundary, gridHeight, eventWidth } = timeWindow;
+  const { startBoundary, endBoundary, gridHeight } = timeWindow;
   const span = endBoundary - startBoundary;
   const editingBlock = useMemo(
     () =>
@@ -927,7 +886,6 @@ function RevisionCalendarRuntime({
       endBoundary,
       gridStep,
       gridHeight,
-      eventWidth,
       timeFormat,
       themeMode,
       eventsServicePlugin,
@@ -973,7 +931,7 @@ function RevisionCalendarRuntime({
         );
       });
 
-      if (!compact && !aligned && column.scrollHeight > column.clientHeight) {
+      if (!aligned && column.scrollHeight > column.clientHeight) {
         const now = new Date();
         const preferredMinutes = scrollPositions?.current.get(selectedDate) ??
           (selectedDate === todayString()
@@ -992,7 +950,7 @@ function RevisionCalendarRuntime({
       const expectedHours = Math.ceil((endBoundary - startBoundary) / gridStep);
       if (
         hours.length >= expectedHours &&
-        (compact || aligned || column.scrollHeight <= column.clientHeight)
+        (aligned || column.scrollHeight <= column.clientHeight)
       ) {
         observer.disconnect();
       }
@@ -1009,7 +967,6 @@ function RevisionCalendarRuntime({
     };
   }, [
     calendarApp,
-    compact,
     selectedDate,
     startBoundary,
     endBoundary,
@@ -1035,19 +992,13 @@ function RevisionCalendarRuntime({
       ref={surfaceRef}
       className={cn(
         "planner-calendar__surface relative",
-        compact && "planner-calendar__surface--compact",
-        isEditable
-          ? "planner-calendar__surface--active"
-          : "planner-calendar__surface--readonly",
+        !isEditable && "planner-calendar__surface--readonly",
       )}
       style={scheduleSurfaceStyle}
     >
       <div
         ref={columnRef}
-        className={cn(
-          "planner-calendar__column",
-          compact && "planner-calendar__column--compact",
-        )}
+        className="planner-calendar__column"
         data-testid="planner-calendar-column"
         onPointerDown={startBlockDrag}
         onPointerMove={moveBlockDrag}
@@ -1059,6 +1010,7 @@ function RevisionCalendarRuntime({
         onScroll={(event) => {
           const column = event.currentTarget;
           scrollPositions?.current.set(selectedDate, startBoundary + column.scrollTop * span / gridHeight);
+          onColumnScroll?.(column);
           if (blockDrag.current?.active) updateBlockPreview(column);
         }}
         onKeyDownCapture={(event) => {
@@ -1142,15 +1094,11 @@ export function PlannerCalendarView({
   onDraftDelete: (blockId: string) => void;
 }) {
   const [showHistory, setShowHistory] = useState(false);
-  const [narrow, setNarrow] = useState(() => window.matchMedia?.("(max-width: 820px)").matches ?? false);
+  const stripId = useId();
+  const stripRef = useRef<HTMLElement>(null);
   const historyTrigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const query = window.matchMedia("(max-width: 820px)");
-    const update = () => setNarrow(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+  const mirroredScrolls = useRef(new WeakMap<HTMLElement, number>());
+  const historyVisible = showHistory && historyRevisions.length > 0;
   const showCurrentTimeLine =
     selectedDate === todayString() && Boolean(config?.show_current_time_line ?? true);
   const orderedHistoryRevisions = useMemo(
@@ -1158,14 +1106,18 @@ export function PlannerCalendarView({
     [historyRevisions],
   );
 
-  const historyContent = <div className="grid max-h-[calc(100dvh-10rem)] gap-4 overflow-y-auto pr-1">
-    {orderedHistoryRevisions.map((revision) => (
-      <div key={revision.id} className="grid gap-3">
-        <RevisionHeader revision={revision} isActive={false} />
-        <RevisionCalendarColumn revision={revision} selectedDate={selectedDate} config={config} isEditable={false} compact showCurrentTimeLine={false} />
-      </div>
-    ))}
-  </div>;
+  const syncColumnScroll = (source: HTMLElement) => {
+    const top = source.scrollTop;
+    const mirrored = mirroredScrolls.current.get(source);
+    mirroredScrolls.current.delete(source);
+    // Assigning scrollTop dispatches another scroll event on the receiving column.
+    if (top === mirrored) return;
+    for (const column of stripRef.current?.querySelectorAll<HTMLElement>('.planner-calendar__column') ?? []) {
+      if (column === source || column.scrollTop === top) continue;
+      column.scrollTop = top;
+      mirroredScrolls.current.set(column, column.scrollTop);
+    }
+  };
 
   return (
     <div className="planner-calendar grid gap-4">
@@ -1190,40 +1142,39 @@ export function PlannerCalendarView({
           size="sm"
           onClick={() => setShowHistory((current) => !current)}
           disabled={historyRevisions.length === 0}
+          aria-expanded={historyVisible}
+          aria-controls={stripId}
         >
-          {showHistory ? (
+          {historyVisible ? (
             <EyeOff className="h-4 w-4" />
           ) : (
             <Eye className="h-4 w-4" />
           )}
-          {showHistory ? "Hide history" : "Show history"}
+          {historyVisible ? "Hide history" : "Show history"}
         </Button>
       </div>
 
-      <div
-        className={cn(
-          "grid gap-4",
-          showHistory && !narrow && orderedHistoryRevisions.length > 0
-            ? "xl:grid-cols-[minmax(0,1fr)_245px]"
-            : "xl:grid-cols-1",
-        )}
+      <section
+        ref={stripRef}
+        id={stripId}
+        aria-label={historyVisible ? "Plan revisions" : undefined}
+        tabIndex={historyVisible ? 0 : undefined}
+        className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
+        onKeyDown={(event) => {
+          if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
+          event.preventDefault();
+          setShowHistory(false);
+          historyTrigger.current?.focus();
+        }}
       >
-        {showHistory && !narrow && orderedHistoryRevisions.length > 0 ? (
-          <aside className="planner-calendar__history-panel order-2 grid gap-4 xl:order-2 xl:sticky xl:top-6 xl:self-start">
-            <div className="flex items-center gap-2 px-1 text-sm text-ink">
-              Plan revisions
-            </div>
-            {historyContent}
-          </aside>
-        ) : null}
-
         <section
-          className="order-1 grid gap-3 min-w-0 w-full xl:order-1"
+          aria-label={currentRevision ? `Revision ${currentRevision.id}` : undefined}
+          className="planner-calendar__revision grid min-w-0 gap-3"
           data-testid="planner-calendar"
         >
           {currentRevision ? (
             <>
-              <RevisionHeader revision={currentRevision} isActive={canEdit} />
+              <RevisionHeader revision={currentRevision} isActive />
               <RevisionCalendarColumn
                 key={selectedDate}
                 revision={currentRevision}
@@ -1234,7 +1185,8 @@ export function PlannerCalendarView({
                 gridScale={gridScale}
                 isEditable={canEdit && !isCommittingDraft}
                 showCurrentTimeLine={showCurrentTimeLine}
-                showHistory={showHistory}
+                showHistory={historyVisible}
+                onColumnScroll={historyVisible ? syncColumnScroll : undefined}
                 onDraftCreate={onDraftCreate}
                 onDraftUpdate={onDraftUpdate}
                 onDraftDelete={onDraftDelete}
@@ -1246,14 +1198,22 @@ export function PlannerCalendarView({
             </div>
           )}
         </section>
-      </div>
-      <Dialog open={showHistory && narrow} onOpenChange={setShowHistory}>
-        <DialogContent className="planner-history-drawer planner-calendar" onCloseAutoFocus={(event) => { event.preventDefault(); historyTrigger.current?.focus(); }}>
-          <DialogTitle>Plan revisions</DialogTitle>
-          <DialogDescription className="mb-6">Earlier plans remain available as saved revisions.</DialogDescription>
-          {historyContent}
-        </DialogContent>
-      </Dialog>
+        {historyVisible && orderedHistoryRevisions.map((revision) => (
+          <section key={revision.id} aria-label={`Revision ${revision.id}`} className="planner-calendar__revision grid min-w-0 gap-3">
+            <RevisionHeader revision={revision} isActive={false} />
+            <RevisionCalendarColumn
+              revision={revision}
+              selectedDate={selectedDate}
+              config={config}
+              scrollPositions={scrollPositions}
+              gridScale={gridScale}
+              isEditable={false}
+              showCurrentTimeLine={false}
+              onColumnScroll={syncColumnScroll}
+            />
+          </section>
+        ))}
+      </section>
     </div>
   );
 }

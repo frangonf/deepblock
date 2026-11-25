@@ -101,14 +101,6 @@ textarea {
   min-height: 0;
 }
 
-.planner-calendar .planner-calendar__surface--compact {
-  min-height: 0;
-}
-
-.planner-calendar .planner-calendar__column--compact {
-  min-height: 0;
-}
-
 .planner-calendar .sx__calendar-wrapper {
   border-radius: 0;
   overflow: hidden;
@@ -194,26 +186,6 @@ textarea {
   container-name: planner-event;
   padding: 0;
   box-shadow: none;
-}
-
-.planner-calendar
-  .planner-calendar__surface--compact
-  .planner-calendar__event-card {
-  padding: 0;
-}
-
-
-.planner-calendar
-  .planner-calendar__surface--compact
-  .planner-calendar__event-card
-  .text-\[11px\] {
-  font-size: 12px;
-}
-
-.planner-calendar
-  .planner-calendar__surface--compact
-  .sx__week-grid__hour-text {
-  font-size: 12px;
 }
 
 .planner-calendar
@@ -401,12 +373,27 @@ textarea {
   }
 }
 
-.planner-calendar__surface--active .planner-calendar__column,
-.planner-calendar__surface--readonly:not(.planner-calendar__surface--compact)
-  .planner-calendar__column {
+.planner-calendar__column {
   height: clamp(260px, calc(100dvh - 360px), 900px);
   overflow-y: auto;
   scrollbar-gutter: stable;
+}
+
+.planner-calendar__revision-strip {
+  grid-auto-flow: column;
+  grid-template: auto auto / minmax(min(100%, 24rem), 1.5fr);
+  grid-auto-columns: minmax(15rem, 1fr);
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+
+.planner-calendar__revision-strip > .planner-calendar__revision {
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+}
+
+.planner-calendar__revision-strip :is(.sx__slide-left, .sx__slide-right) {
+  animation: none;
 }
 
 .block-type {
@@ -664,8 +651,7 @@ textarea:disabled {
 .planner-calendar .planner-calendar__event-card[data-unsaved="true"] { border: 1px dashed var(--db-warning); border-left: 3px solid var(--db-warning); }
 .planner-calendar .sx__current-time-indicator { background: var(--db-accent); }
 .planner-calendar .sx__current-time-indicator::before { background: var(--db-accent); }
-.planner-calendar__history-panel { border-left: 1px solid var(--db-line); padding-left: var(--db-space-5); }
-.planner-calendar__column, .planner-calendar__history-panel, .db-dialog, .planner-calendar__inline-editor, textarea { scrollbar-width: thin; scrollbar-color: var(--db-scroll-thumb) transparent; }
+.planner-calendar__column, .planner-calendar__revision-strip, .db-dialog, .planner-calendar__inline-editor, textarea { scrollbar-width: thin; scrollbar-color: var(--db-scroll-thumb) transparent; }
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--db-scroll-thumb); border-radius: 999px; }
@@ -724,8 +710,6 @@ textarea:disabled {
 
 .planner-plan { border: 0; background: var(--db-canvas); box-shadow: none; }
 .planner-plan > div { padding: 0; }
-
-.planner-history-drawer { left: auto; right: 0; top: 0; bottom: 0; transform: none; width: min(100vw, 420px); max-height: 100dvh; border-radius: 0; }
 
 /* Keep the calendar library's internal controls inside the same theme boundary. */
 .planner-calendar .sx__calendar-wrapper {

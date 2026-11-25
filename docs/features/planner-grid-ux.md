@@ -25,9 +25,10 @@ revision, undo/redo, and activity refresh actions live under Plan actions.
 The calendar keeps the visible time when saving, zooming, or returning to a day
 within the Planner. The draft status and Save action stay in reach while editing.
 The zoom buttons change the calendar scale for the current Planner session.
-Calendar history is hidden initially; Show history reveals a narrower read-only
-rail on the right at wide desktop sizes. At or below 820px, history opens in a
-modal drawer with keyboard focus containment and return. Artifact links
+**Show history** places each saved revision in a read-only column beside the
+current plan, newest first. The columns share the same hours, vertical scroll,
+and zoom. Scroll sideways to reach more revisions. With the revision area
+focused, Escape closes history and returns focus to the toggle. Artifact links
 remain saved-block metadata: save or discard draft changes before managing them.
 Today and future days support draft editing and saving. Past days remain read-only.
 
@@ -60,8 +61,8 @@ and vertical scrolling is retained only when needed to fit the viewport. The
 editor repositions on viewport resize. Invalid edits remain open with their field
 values and a message. Escape closes the editor and a click outside dismisses a
 clean editor.
-Tauri windows can shrink to 480 × 480 logical pixels, enabling the shared compact
-navigation and history drawer instead of enforcing a desktop-only width.
+Tauri windows can shrink to 480 × 480 logical pixels and use the shared compact
+navigation and horizontally scrollable revision columns.
 
 Theme values live in `apps/desktop/ui/src/themes.css`; foundations and component
 rules live in `apps/desktop/ui/src/index.css`. The shared
