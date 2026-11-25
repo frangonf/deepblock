@@ -12,6 +12,8 @@ platform verification, and acceptance through ordinary use are distinct statuses
 
 - [`advanced-deepblock-vision.md`](advanced-deepblock-vision.md) — future recording, automatic context enrichment, inferred assessment, and workspace assistance; manual projects/goals and intent history already exist
 
+- [`activity-tracking-evaluation.md`](activity-tracking-evaluation.md) — open-source recorders, integration paths, and local or hosted inference for activity review
+
 - [`ui-ux-audit-2026-10-01.md`](ui-ux-audit-2026-10-01.md) — historical interface findings and resolution/validation record; later identity work is documented in [Design System v1](../design-system.md)
 
 - [`planning-baseline.md`](planning-baseline.md): dated pre-migration data and performance baseline, reusable regression checks, and revision-specific distribution evidence
