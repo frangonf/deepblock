@@ -53,10 +53,10 @@ urgency = "normal"
 
 ### `[server]`
 
-| Key    | Default     | Notes                                            |
-| ------ | ----------- | ------------------------------------------------ |
+| Key    | Default     | Notes                                             |
+| ------ | ----------- | ------------------------------------------------- |
 | `host` | `127.0.0.1` | Loopback IP address, such as `127.0.0.1` or `::1` |
-| `port` | `8000`      | Rust server port                                 |
+| `port` | `8000`      | Rust server port                                  |
 
 Non-loopback and wildcard bind addresses are rejected. To reach a backend running on another machine, keep it on loopback there and use an SSH tunnel.
 
@@ -195,10 +195,23 @@ Not implemented or persisted by the current Rust settings model. Idle-prompt and
 
 ## Settings API
 
+Read the storage generation before updating settings. The example uses `jq`
+to extract the generation from storage status.
+
 ```bash
-curl http://127.0.0.1:8000/config
-curl -X PATCH http://127.0.0.1:8000/config -H "Content-Type: application/json" -d '{"default_duration":45}'
+base_url=http://127.0.0.1:8000
+curl --fail-with-body "$base_url/config"
+if generation=$(curl --fail --silent --show-error "$base_url/storage/status" | jq -er '.generation | strings'); then
+  curl --fail-with-body --request PATCH "$base_url/config" \
+    --header "Content-Type: application/json" \
+    --header "X-DeepBlock-Dataset-Generation: $generation" \
+    --data '{"default_duration":45}'
+fi
 ```
+
+See [request safety](storage-and-request-safety.md#whole-dataset-replacement)
+for stale-generation handling and the [OpenAPI contract proposal](features/openapi-contract.md)
+for planned schema coverage.
 
 ## Environment overrides
 
