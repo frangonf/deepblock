@@ -8,22 +8,33 @@ Calendar and list views edit the same per-day draft. Adding, editing, deleting,
 reordering, dragging, and resizing blocks never save the plan implicitly.
 **Apply to draft** closes the block editor; **Save revised plan** commits the
 first plan into an untouched bootstrap A, then appends one revision per later
-save. An optional reason stays with the retained, date-scoped draft.
-**Discard changes** restores the saved plan. Existing history is not renumbered;
-Compare defaults to the first nonempty revision while leaving empty bootstrap
-revisions explicitly selectable.
+save. **Draft actions** contains the optional reason and **Discard changes**.
+The reason stays with the retained, date-scoped draft.
+**Undo edit** reverses the last draft action, including all blocks displaced by
+one move or resize. **Discard changes** restores the saved plan. Existing history
+is not renumbered. Compare defaults to the first nonempty revision while leaving
+empty bootstrap revisions explicitly selectable.
 Switching views, dates, or routes preserves each draft in per-tab session storage.
 A conflicting saved plan requires explicitly applying retained edits to the latest
 plan, or discarding them. Editing freezes while a save is in flight. Completion
 clears only the submitted day's draft, even if browser history switches to another
 day before the save finishes.
 
-The compact header keeps date navigation and Add block visible. The active grid
-scrolls within the workspace and opens around the current time for today. Secondary
-revision, undo/redo, and activity refresh actions live under Plan actions.
-Calendar history is hidden initially; Show history reveals a narrower read-only
-rail on the right at wide desktop sizes. At or below 820px, history opens in a
-modal drawer with keyboard focus containment and return. Artifact links
+The compact header keeps date navigation and Add block together. The active grid
+scrolls within the workspace and opens around the current time for today. Notes,
+saved revision actions, and activity refresh live under **Plan actions**.
+The calendar keeps the visible time when saving, zooming, or returning to a day
+within the Planner. The draft status and Save action have a dedicated row below
+the workspace. The zoom buttons beside the view tabs change the calendar scale
+for the current Planner session.
+**Show history** sits beside the Calendar and List tabs and stays open when
+switching views. Calendar shows read-only revisions from oldest to newest,
+with the current plan on the right. The view opens on the current plan, and
+you can scroll left to see earlier revisions. When the columns overflow,
+**Earlier revision** and **Current plan** move between them. The columns share
+the same hours, vertical scroll, and zoom. With the revision area focused, use
+the arrow keys to scroll or Escape to close history and return to the toggle.
+If the day has no earlier saved revisions, the planner says so. Artifact links
 remain saved-block metadata: save or discard draft changes before managing them.
 Today and future days support draft editing and saving. Past days remain read-only.
 
@@ -33,7 +44,14 @@ its inline editor without discarding staged blocks. Block creation also works on
 plain HTTP LAN origins, using cryptographic random identifiers when the browser's
 secure-context-only UUID API is unavailable.
 
-Moves and resizes ripple overlapping live blocks. Preview and server both order
+Dragging or resizing a block previews where it and affected blocks will land.
+Scrolling during a drag keeps the selection aligned with the time under the
+pointer. On touch screens, swipe over the grid or a block to scroll. Hold briefly
+before dragging to create or move a block, or hold its lower edge before
+dragging to resize. Releasing a move or resize stages the change
+without opening the editor. A newly selected interval becomes a draft block
+when the editor is applied. Moves and resizes ripple overlapping live blocks.
+Preview and server both order
 equal starts by label (Unicode code-point order); identical labels keep their
 input order. Cancelled blocks neither consume ripple time nor displace other
 blocks. Invalid times and cascades extending past 24:00 are rejected without
@@ -41,13 +59,17 @@ changing the retained draft. A block may end exactly at midnight.
 
 The inline editor renders through a portal outside calendar panels. It receives
 keyboard focus, grows to 42rem when space permits, and uses the available width
-with a 16px viewport margin on narrower windows. Field pairs follow the actual
+with a 16px viewport margin on narrower windows. Scheduling fields appear first,
+and **Block details** expands the remaining fields. Field pairs follow the actual
 form width rather than a window breakpoint; controls shrink and action buttons
 wrap without horizontal scrolling. Placement uses the rendered editor dimensions,
 and vertical scrolling is retained only when needed to fit the viewport. The
-editor closes with Escape and dismisses on outside clicks or viewport resize.
-Tauri windows can shrink to 480 × 480 logical pixels, enabling the shared compact
-navigation and history drawer instead of enforcing a desktop-only width.
+editor follows its block while scrolling or resizing. If the block leaves the
+visible grid, the editor docks at the viewport edge and keeps the typed fields.
+Invalid edits remain open with their field values and a message. Escape closes
+the editor and a click outside dismisses a clean editor.
+Tauri windows can shrink to 480 × 480 logical pixels and use the shared compact
+navigation and horizontally scrollable revision columns.
 
 Theme values live in `apps/desktop/ui/src/themes.css`; foundations and component
 rules live in `apps/desktop/ui/src/index.css`. The shared
@@ -73,6 +95,9 @@ add type, status, and next action. Full details remain available in the accessib
 label and editor. Tab to an editable block and press Enter or Space to edit;
 Escape closes the editor and restores focus. Whole-hour time labels take priority
 over half hours; quarter-hour labels are hidden without changing grid snapping.
+Outside text fields and dialogs, use **C** to add a block, **T** for today, and
+**J** or **K** to move to the next or previous day. Use **Ctrl/Cmd+S** to commit
+the draft or **Ctrl/Cmd+Z** to undo its last edit.
 The day summary reflects the current draft, excludes cancelled blocks from planned
 and focus time, and counts completed blocks separately.
 

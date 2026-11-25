@@ -42,6 +42,7 @@ test('first commitment is A and later revisions compare against it with an optio
   await page.getByLabel('Label', { exact: true }).fill(label);
   await page.getByLabel('Start', { exact: true }).fill('09:00');
   await page.getByRole('button', { name: 'Apply to draft', exact: true }).click();
+  await page.getByLabel('Draft actions', { exact: true }).click();
   await page.getByLabel('Reason (optional)').fill('Morning intention');
   await page.getByTestId('planner-commit-replan').click();
   await expect(page.getByText('All changes saved')).toBeVisible();
@@ -52,6 +53,7 @@ test('first commitment is A and later revisions compare against it with an optio
   await page.getByTestId('planner-calendar').getByTestId('calendar-event').filter({ hasText: label }).click();
   await page.getByLabel('Start', { exact: true }).fill('10:00');
   await page.getByRole('button', { name: 'Apply to draft', exact: true }).click();
+  await page.getByLabel('Draft actions', { exact: true }).click();
   await page.getByLabel('Reason (optional)').fill('Meeting shifted the morning');
   await page.getByTestId('planner-commit-replan').click();
   await expect(page.getByText('All changes saved')).toBeVisible();

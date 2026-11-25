@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -15,11 +17,10 @@ import {
   type CalendarEvent,
 } from "@schedule-x/calendar";
 import { createCurrentTimePlugin } from "@schedule-x/current-time";
-import { createDragAndDropPlugin } from "@schedule-x/drag-and-drop";
 import { createEventsServicePlugin } from "@schedule-x/events-service";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { createResizePlugin } from "@schedule-x/resize";
-import { Eye, EyeOff } from "lucide-react";
+import { ChevronLeft, ChevronsRight } from "lucide-react";
+import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type {
@@ -29,7 +30,6 @@ import type {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { BlockFields, useBlockForm } from "./BlockFields";
 import {
   typeOptions,
@@ -42,10 +42,12 @@ import {
   parseTime,
   todayString,
 } from "@/lib/utils";
-import type { DraftBlockInput } from "@/components/planner/calendarDraft";
+import { applyDraftUpdate, type DraftBlockInput } from "@/components/planner/calendarDraft";
 
 const dayView = createViewDay();
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const eventWidth = 96;
+const touchHoldMs = 350;
 
 const sharedCalendars = Object.fromEntries(
   typeOptions.map((type) => [
@@ -82,18 +84,25 @@ type InlineEditorAnchor = {
   height: number;
 };
 
-type InlineEditorState = {
-  blockId: string;
-  isNew: boolean;
-  anchor: InlineEditorAnchor;
-};
+type InlineEditorState =
+  | { blockId: string }
+  | { initial: DraftBlockInput };
 
-type DragSelectionState = {
-  dayRect: DOMRect;
-  surfaceRect: DOMRect;
-  startMinutes: number;
-  endMinutes: number;
-};
+type PreviewBlock = Pick<Block, 'id' | 'label' | 'start' | 'duration'>;
+
+type CalendarGesture = {
+  pointerId: number;
+  originY: number;
+  originScroll: number;
+  clientY: number;
+  touchStarted?: number;
+  active: boolean;
+  offset?: number;
+  preview?: { blocks: PreviewBlock[]; error?: string };
+  previewPosition?: string;
+} & ({ kind: 'create'; start: number } | { kind: 'move' | 'resize'; block: Block });
+
+type BlockTiming = { start: string; duration: number };
 
 function clampDuration(value: number, config?: ClientConfig) {
   const interval = Math.max(1, config?.rounding_interval ?? 15);
@@ -101,15 +110,6 @@ function clampDuration(value: number, config?: ClientConfig) {
   const maxDuration = config?.max_duration ?? 480;
   const rounded = Math.max(interval, Math.round(value / interval) * interval);
   return Math.min(maxDuration, Math.max(minDuration, rounded));
-}
-
-function normalizeMinutes(totalMinutes: number) {
-  const minutesInDay = 24 * 60;
-  return ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
-}
-
-function roundMinutes(totalMinutes: number, interval: number) {
-  return normalizeMinutes(Math.round(totalMinutes / interval) * interval);
 }
 
 function scheduleGridStep(roundingInterval?: number): 180 | 120 | 60 | 30 | 15 {
@@ -134,24 +134,11 @@ function floorToHour(totalMinutes: number) {
   return Math.floor(totalMinutes / 60) * 60;
 }
 
-function ceilToHour(totalMinutes: number) {
-  return Math.ceil(totalMinutes / 60) * 60;
-}
-
 function zonedDateTimeAt(date: string, time: string) {
   return Temporal.PlainDate.from(date).toZonedDateTime({
     timeZone: localTimezone,
     plainTime: Temporal.PlainTime.from(time),
   });
-}
-
-function toPlannerTimeString(
-  dateTime: Temporal.ZonedDateTime,
-  interval: number,
-) {
-  return formatTime(
-    roundMinutes(dateTime.hour * 60 + dateTime.minute, interval),
-  );
 }
 
 function formatClockLabel(
@@ -180,12 +167,16 @@ function buildScheduleEvent({
   timeFormat: ClientConfig["time_format"];
 }): PlannerCalendarEvent {
   const start = zonedDateTimeAt(selectedDate, block.start);
+  const endMinutes = parseTime(block.start) + block.duration;
+  // Schedule-X classifies a next-date midnight endpoint as a multi-day event.
+  // Keep the display endpoint in the time grid while the block retains 24:00.
+  const end = zonedDateTimeAt(selectedDate, formatTime(Math.min(1439, endMinutes)));
 
   return {
     id: block.id,
     title: block.label,
     start,
-    end: start.add({ minutes: block.duration }),
+    end,
     calendarId: block.type,
     resourceId: revision.id,
     block,
@@ -201,6 +192,7 @@ function buildScheduleEvent({
         editable
           ? "planner-calendar__event-shell--editable"
           : "planner-calendar__event-shell--readonly",
+        endMinutes === 1440 ? "planner-calendar__event-shell--midnight" : "",
         block.status === "done" ? "planner-calendar__event-shell--done" : "",
         block.status === "cancelled"
           ? "planner-calendar__event-shell--cancelled"
@@ -223,7 +215,7 @@ function PlannerTimeGridEvent({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const start = formatClockLabel(block.start, calendarEvent.timeFormat);
   const finish = formatClockLabel(
-    formatTime(parseTime(block.start) + block.duration),
+    formatDayBoundary(parseTime(block.start) + block.duration),
     calendarEvent.timeFormat,
   );
   const accessibleSummary = `${block.label}, ${start} to ${finish}, ${formatMinutes(block.duration)}, ${block.type}, ${block.status}${calendarEvent.isUnsaved ? ", unsaved" : ""}`;
@@ -231,9 +223,17 @@ function PlannerTimeGridEvent({
   useEffect(() => {
     const event = cardRef.current?.closest<HTMLElement>(".sx__time-grid-event");
     if (!event) return;
-    event.setAttribute("aria-label", accessibleSummary);
     event.setAttribute("title", accessibleSummary);
-  }, [accessibleSummary]);
+    if (calendarEvent.isEditable) {
+      event.setAttribute("aria-label", accessibleSummary);
+      event.setAttribute("role", "button");
+      event.tabIndex = 0;
+    } else {
+      event.removeAttribute("aria-label");
+      event.removeAttribute("role");
+      event.removeAttribute("tabindex");
+    }
+  }, [accessibleSummary, calendarEvent.isEditable]);
 
   return (
     <div
@@ -266,6 +266,7 @@ function PlannerTimeGridEvent({
           <div className="planner-event__next">Next: {block.next_action}</div>
         ) : null}
       </div>
+      {calendarEvent.isEditable && <span className="sx__time-grid-event-resize-handle" aria-hidden="true" />}
     </div>
   );
 }
@@ -288,15 +289,15 @@ function RevisionHeader({
           : "border-line bg-surface",
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="truncate text-sm font-semibold text-ink">
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="whitespace-nowrap text-sm font-semibold text-ink">
           Revision {revision.id}
         </span>
         <Badge className={isActive ? "status-info" : undefined}>
           {isActive ? "Current plan" : "history"}
         </Badge>
       </div>
-      <span className="truncate text-xs text-muted">
+      <span className="truncate text-xs text-muted" title={revision.reason ?? undefined}>
         {revision.reason ?? "No reason recorded"}
       </span>
     </div>
@@ -304,7 +305,7 @@ function RevisionHeader({
 }
 
 export function plannerBlockAnchor(
-  anchor: InlineEditorAnchor,
+  anchor: InlineEditorAnchor | null,
   showHistory: boolean,
   panel: { width: number; height: number },
 ) {
@@ -312,6 +313,7 @@ export function plannerBlockAnchor(
     typeof window === "undefined" ? 1280 : window.innerWidth;
   const viewportHeight =
     typeof window === "undefined" ? 900 : window.innerHeight;
+  if (!anchor) return { left: Math.max(16, viewportWidth - panel.width - 16), top: 16 };
   const leftPosition = showHistory
     ? anchor.left - panel.width - 16
     : anchor.left + 24;
@@ -324,34 +326,57 @@ export function plannerBlockAnchor(
 
 function PlannerInlineEditor({
   block,
-  anchor,
-  isNew,
+  initial,
+  getAnchor,
   showHistory,
   onSave,
   onDelete,
   onCancel,
 }: {
-  block: Block;
-  anchor: InlineEditorAnchor;
-  isNew: boolean;
+  block: Block | null;
+  initial?: DraftBlockInput;
+  getAnchor: () => InlineEditorAnchor | null;
   showHistory: boolean;
   onSave: (payload: ReturnType<typeof useBlockForm>['payload']) => void;
   onDelete: () => void;
   onCancel: () => void;
 }) {
-  const form = useBlockForm(block);
+  const form = useBlockForm(block, initial);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState({ left: 16, top: 16 });
+  const [placement, setPlacement] = useState({ left: 16, top: 16, docked: false });
+  const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
 
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    const update = () => setPosition(plannerBlockAnchor(anchor, showHistory, editor.getBoundingClientRect()));
+    let frame = 0;
+    const update = () => {
+      const anchor = getAnchor();
+      const { left, top } = plannerBlockAnchor(anchor, showHistory, editor.getBoundingClientRect());
+      const docked = anchor === null;
+      setPlacement((current) => current.left === left && current.top === top && current.docked === docked
+        ? current : { left, top, docked });
+    };
+    const onScroll = (event: Event) => {
+      if (frame || (event.target instanceof Node && editor.contains(event.target))) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(editor);
-    return () => observer.disconnect();
-  }, [anchor, showHistory]);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [getAnchor, showHistory]);
 
   useEffect(() => {
     const previousFocus =
@@ -361,10 +386,13 @@ function PlannerInlineEditor({
     editorRef.current
       ?.querySelector<HTMLInputElement>("input")
       ?.focus({ preventScroll: true });
+    return () => previousFocus?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (
-        event.target instanceof Node &&
-        editorRef.current?.contains(event.target)
+        dirty || (event.target instanceof Node && editorRef.current?.contains(event.target))
       )
         return;
       onCancel();
@@ -377,50 +405,52 @@ function PlannerInlineEditor({
     };
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("resize", onCancel);
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("resize", onCancel);
-      previousFocus?.focus({ preventScroll: true });
     };
-  }, [onCancel]);
+  }, [dirty, onCancel]);
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="false"
-      aria-label={isNew ? "Draft block" : "Edit block"}
+      aria-label={block ? "Edit block" : "Draft block"}
       ref={editorRef}
       data-testid="planner-inline-editor"
+      data-docked={placement.docked}
       className="planner-calendar__inline-editor fixed z-40 rounded-[var(--db-radius)] border border-line bg-surface p-4 shadow-2xl shadow-black/40"
-      style={position}
+      style={{ left: placement.left, top: placement.top }}
     >
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-ink">
-            {isNew ? "Draft block" : "Edit block"}
+            {block ? "Edit block" : "Draft block"}
           </div>
           <div className="text-xs text-muted">
             Apply changes to your draft, then save the revised plan.
           </div>
         </div>
-        <Badge className={cn("text-xs", labelTone(block.type))}>
-          {block.type}
+        <Badge className={cn("text-xs", labelTone(form.values.type))}>
+          {form.values.type}
         </Badge>
       </div>
       <form
         className="grid gap-3"
+        onChange={() => setDirty(true)}
         onSubmit={(event) => {
           event.preventDefault();
-          onSave(form.payload);
+          try {
+            onSave(form.payload);
+          } catch (failure) {
+            setError(failure instanceof Error ? failure.message : 'Could not apply this block.');
+          }
         }}
       >
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         <BlockFields form={form} compact />
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <Button variant="ghost" type="button" size="sm" onClick={onDelete}>
-            {isNew ? "Discard block" : "Delete block"}
-          </Button>
+          <div>{block && <Button variant="ghost" type="button" size="sm" onClick={onDelete}>Delete block</Button>}</div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" type="button" size="sm" onClick={onCancel}>
               Cancel
@@ -503,68 +533,27 @@ function elementAnchor(element: HTMLElement): InlineEditorAnchor {
 }
 
 function findBlockElement(surface: HTMLElement | null, blockId: string) {
-  if (!surface) {
-    return null;
-  }
-
-  return (
-    Array.from(surface.querySelectorAll<HTMLElement>("[data-block-id]")).find(
-      (element) => element.getAttribute("data-block-id") === blockId,
-    ) ?? null
-  );
+  return surface?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(blockId)}"]`) ?? null;
 }
 
 export function revisionTimeWindow({
-  revision,
   config,
-  slotStep,
-  compact,
+  gridScale = 1,
 }: {
-  revision: Revision;
   config?: ClientConfig;
-  slotStep: number;
-  compact: boolean;
+  gridScale?: number;
 }) {
-  const defaultStartBoundary = (config?.start_hour ?? 0) * 60;
-  const defaultEndBoundary = (config?.end_hour ?? 24) * 60;
+  const startBoundary = (config?.start_hour ?? 0) * 60;
+  const endBoundary = (config?.end_hour ?? 24) * 60;
   const defaultGridHeight = Math.max(
     900,
-    ((config?.end_hour ?? 24) - (config?.start_hour ?? 0)) *
-      60 *
-      Math.max(1, config?.pixels_per_minute ?? 1),
+    (endBoundary - startBoundary) * Math.max(1, config?.pixels_per_minute ?? 1),
   );
-
-  if (!compact || revision.blocks.length === 0) {
-    return {
-      startBoundary: defaultStartBoundary,
-      endBoundary: defaultEndBoundary,
-      gridHeight: defaultGridHeight,
-      eventWidth: 96,
-    };
-  }
-
-  const previewPadding = Math.max(30, slotStep * 2);
-  const earliestStart = Math.min(
-    ...revision.blocks.map((block) => parseTime(block.start)),
-  );
-  const latestEnd = Math.max(
-    ...revision.blocks.map((block) => parseTime(block.start) + block.duration),
-  );
-  const compactStart = Math.max(
-    defaultStartBoundary,
-    floorToHour(earliestStart - previewPadding),
-  );
-  const compactEnd = Math.min(
-    defaultEndBoundary,
-    ceilToHour(latestEnd + previewPadding),
-  );
-  const spanMinutes = Math.max(120, compactEnd - compactStart);
 
   return {
-    startBoundary: compactStart,
-    endBoundary: compactEnd,
-    gridHeight: Math.max(260, Math.min(420, Math.round(spanMinutes * 0.7))),
-    eventWidth: 88,
+    startBoundary,
+    endBoundary,
+    gridHeight: Math.round(defaultGridHeight * gridScale),
   };
 }
 
@@ -579,9 +568,12 @@ type RevisionCalendarColumnProps = {
   selectedDate: string;
   config?: ClientConfig;
   isEditable: boolean;
-  compact?: boolean;
+  isHistory?: boolean;
   showCurrentTimeLine: boolean;
   showHistory?: boolean;
+  scrollPositions?: RefObject<Map<string, number>>;
+  gridScale?: number;
+  onColumnScroll?: (column: HTMLElement) => void;
   onDraftCreate?: (input: DraftBlockInput) => Block;
   onDraftUpdate?: (blockId: string, payload: Record<string, unknown>) => void;
   onDraftDelete?: (blockId: string) => void;
@@ -591,10 +583,8 @@ function RevisionCalendarColumn(props: RevisionCalendarColumnProps) {
   const themeMode = useThemeMode();
   const slotStep = Math.max(5, props.config?.rounding_interval ?? 15);
   const timeWindow = revisionTimeWindow({
-    revision: props.revision,
     config: props.config,
-    slotStep,
-    compact: props.compact ?? false,
+    gridScale: props.gridScale,
   });
   // The React adapter initializes config/plugins once. Recreate that runtime
   // only for structural changes; ordinary block edits still use set(events).
@@ -604,7 +594,6 @@ function RevisionCalendarColumn(props: RevisionCalendarColumnProps) {
     slotStep,
     scheduleGridStep(props.config?.rounding_interval),
     props.config?.time_format ?? "24h",
-    props.isEditable,
     props.showCurrentTimeLine,
     themeMode,
   ]);
@@ -623,9 +612,11 @@ function RevisionCalendarRuntime({
   selectedDate,
   config,
   isEditable,
-  compact = false,
+  isHistory = false,
   showCurrentTimeLine,
   showHistory = false,
+  scrollPositions,
+  onColumnScroll,
   onDraftCreate,
   onDraftUpdate,
   onDraftDelete,
@@ -635,112 +626,273 @@ function RevisionCalendarRuntime({
 }) {
   const themeMode = useThemeMode();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const columnRef = useRef<HTMLDivElement | null>(null);
   const [editorState, setEditorState] = useState<InlineEditorState | null>(
     null,
   );
-  const [dragSelection, setDragSelection] = useState<DragSelectionState | null>(
-    null,
-  );
-  const dragRef = useRef<DragSelectionState | null>(null);
+  const blockDrag = useRef<CalendarGesture | null>(null);
+  const blockDragFrame = useRef(0);
+  const [blockPreview, setBlockPreview] = useState<{
+    items: { block: PreviewBlock; style: CSSProperties }[];
+    error?: string;
+  } | null>(null);
   const slotStep = Math.max(5, config?.rounding_interval ?? 15);
   const gridStep = scheduleGridStep(config?.rounding_interval);
   const defaultDuration = config?.default_duration ?? 60;
   const timeFormat = config?.time_format ?? "24h";
-  const { startBoundary, endBoundary, gridHeight, eventWidth } = timeWindow;
+  const { startBoundary, endBoundary, gridHeight } = timeWindow;
+  const span = endBoundary - startBoundary;
   const editingBlock = useMemo(
     () =>
-      editorState
+      editorState && 'blockId' in editorState
         ? (revision.blocks.find((block) => block.id === editorState.blockId) ??
           null)
         : null,
     [editorState, revision.blocks],
   );
-  const visibleEditorState = editorState && editingBlock ? editorState : null;
+  const editingInitial = editorState && 'initial' in editorState ? editorState.initial : undefined;
 
-  // ── Stable refs for volatile values so Schedule-X callbacks stay current ──
-  // useCalendarApp creates the calendar once (empty deps) so all callbacks
-  // captured at mount time must read from refs to avoid stale closures.
-  const latestRef = useRef({
-    isEditable,
-    onDraftCreate,
-    onDraftUpdate,
-    slotStep,
-    startBoundary,
-    endBoundary,
-    config,
-    defaultDuration,
-  });
-  useEffect(() => {
-    latestRef.current = {
-      isEditable,
-      onDraftCreate,
-      onDraftUpdate,
-      slotStep,
-      startBoundary,
-      endBoundary,
-      config,
-      defaultDuration,
-    };
-  });
+  const getEditorAnchor = useCallback(() => {
+    const column = columnRef.current;
+    if (!editorState || !column) return null;
+
+    let anchor: InlineEditorAnchor;
+    if ("blockId" in editorState) {
+      const element = findBlockElement(surfaceRef.current, editorState.blockId);
+      if (!element) return null;
+      anchor = elementAnchor(element);
+    } else {
+      const day = column.querySelector('.sx__time-grid-day');
+      if (!day) return null;
+      const startMinutes = parseTime(editorState.initial.start);
+      anchor = selectionAnchor({ dayRect: day.getBoundingClientRect(), startMinutes, endMinutes: startMinutes + editorState.initial.duration, startBoundary, endBoundary });
+    }
+
+    const right = anchor.left + anchor.width;
+    const bottom = anchor.top + anchor.height;
+    if (right <= 0 || bottom <= 0 || anchor.left >= window.innerWidth || anchor.top >= window.innerHeight) return null;
+    for (const clip of [column, column.closest('.planner-workspace__body'), column.closest('.planner-calendar__revision-strip')]) {
+      if (!clip) continue;
+      const rect = clip.getBoundingClientRect();
+      if (right <= rect.left || anchor.left >= rect.right || bottom <= rect.top || anchor.top >= rect.bottom) return null;
+    }
+    return anchor;
+  }, [editorState, startBoundary, endBoundary]);
 
   const eventsServicePlugin = useMemo(() => createEventsServicePlugin(), []);
 
   const plugins = useMemo(() => {
-    const nextPlugins: ReturnType<
-      | typeof createEventsServicePlugin
-      | typeof createCurrentTimePlugin
-      | typeof createDragAndDropPlugin
-      | typeof createResizePlugin
-    >[] = [eventsServicePlugin];
+    return showCurrentTimeLine ? [eventsServicePlugin, createCurrentTimePlugin()] : [eventsServicePlugin];
+  }, [eventsServicePlugin, showCurrentTimeLine]);
 
-    if (showCurrentTimeLine) {
-      nextPlugins.push(createCurrentTimePlugin());
+  const startBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isEditable || editorState || !event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
+    const grid = event.target.closest('.sx__time-grid-day');
+    if (!grid) return;
+    const id = event.target.closest('.sx__time-grid-event')?.getAttribute('data-event-id');
+    const block = revision.blocks.find((candidate) => candidate.id === id);
+    if (id && !block) return;
+    blockDrag.current = {
+      pointerId: event.pointerId,
+      originY: event.clientY,
+      originScroll: event.currentTarget.scrollTop,
+      clientY: event.clientY,
+      touchStarted: event.pointerType === 'touch' ? event.timeStamp : undefined,
+      active: false,
+      ...(block ? {
+        kind: event.target.closest('.sx__time-grid-event-resize-handle') ? 'resize' : 'move',
+        block,
+      } : {
+        kind: 'create',
+        start: pointerToMinutes({ clientY: event.clientY, dayRect: grid.getBoundingClientRect(), startBoundary, endBoundary, slotStep }),
+      }),
+    };
+  };
+
+  const dragOffset = (drag: CalendarGesture, column: HTMLDivElement) => {
+    const deltaY = drag.clientY - drag.originY + column.scrollTop - drag.originScroll;
+    return Math.round(deltaY * span / gridHeight / slotStep) * slotStep;
+  };
+
+  const dragTiming = (drag: CalendarGesture, offset: number): BlockTiming => {
+    if (drag.kind === 'create') {
+      const end = Math.max(startBoundary, Math.min(endBoundary, drag.start + offset));
+      const start = Math.min(drag.start, end);
+      const duration = clampDuration(Math.abs(end - drag.start) || defaultDuration, config);
+      return { start: formatTime(start), duration: Math.min(duration, endBoundary - start) };
     }
-    if (isEditable) {
-      nextPlugins.push(createDragAndDropPlugin(slotStep));
-      nextPlugins.push(createResizePlugin(slotStep));
+    const { start, duration } = drag.block;
+    if (offset === 0) return { start, duration };
+    const minutes = parseTime(start);
+    if (drag.kind === 'resize') {
+      return { start, duration: Math.min(endBoundary - minutes, clampDuration(duration + offset, config)) };
     }
+    const next = Math.max(startBoundary, Math.min(endBoundary - duration, minutes + offset));
+    return { start: formatTime(next), duration };
+  };
 
-    return nextPlugins;
-  }, [eventsServicePlugin, isEditable, showCurrentTimeLine, slotStep]);
+  const updateBlockPreview = (column: HTMLDivElement) => {
+    cancelAnimationFrame(blockDragFrame.current);
+    blockDragFrame.current = requestAnimationFrame(() => {
+      const drag = blockDrag.current;
+      if (!drag?.active) return;
+      const offset = dragOffset(drag, column);
+      const grid = column.querySelector('.sx__time-grid-day');
+      const surface = surfaceRef.current;
+      if (!grid || !surface) return;
+      const changed = drag.offset !== offset;
+      if (changed) {
+        drag.offset = offset;
+        const timing = dragTiming(drag, offset);
+        if (drag.kind === 'create') {
+          drag.preview = { blocks: [{ id: 'new-block', label: 'New block', ...timing }] };
+        } else {
+          const original = new Map(revision.blocks.map((block) => [block.id, block]));
+          try {
+            const blocks = applyDraftUpdate(revision.blocks, drag.block.id, timing).filter((block) => {
+              const before = original.get(block.id);
+              return block.id === drag.block.id || before?.start !== block.start || before?.duration !== block.duration;
+            });
+            drag.preview = { blocks };
+          } catch (error) {
+            drag.preview = {
+              blocks: [{ ...drag.block, ...timing }],
+              error: error instanceof Error ? error.message : 'This change does not fit.',
+            };
+          }
+        }
+      }
+      const area = surface.getBoundingClientRect();
+      const day = grid.getBoundingClientRect();
+      const position = [day.left - area.left, day.top - area.top, day.width, day.height].join(',');
+      if (drag.preview && (changed || position !== drag.previewPosition)) {
+        drag.previewPosition = position;
+        setBlockPreview({
+          error: drag.preview.error,
+          items: drag.preview.blocks.map((block) => {
+            const start = parseTime(block.start);
+            const anchor = selectionAnchor({ dayRect: day, startMinutes: start, endMinutes: start + block.duration, startBoundary, endBoundary });
+            return { block, style: {
+              left: anchor.left - area.left,
+              top: anchor.top - area.top,
+              width: anchor.width * eventWidth / 100,
+              height: anchor.height,
+            } };
+          }),
+        });
+      }
+      const scroller = column.getBoundingClientRect();
+      const top = Math.max(0, scroller.top);
+      const bottom = Math.min(window.innerHeight, scroller.bottom);
+      const edge = 28;
+      const rate = drag.clientY < top + edge ? -8 : drag.clientY > bottom - edge ? 8 : 0;
+      const before = column.scrollTop;
+      if (rate) column.scrollTop += rate;
+      if (column.scrollTop !== before) updateBlockPreview(column);
+    });
+  };
 
-  const events = useMemo(
-    () =>
-      revision.blocks.map((block) =>
+  const moveBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = blockDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag.clientY = event.clientY;
+    if (!drag.active) {
+      if (Math.abs(event.clientY - drag.originY) < 4) return;
+      if (drag.touchStarted !== undefined && event.timeStamp - drag.touchStarted < touchHoldMs) return;
+      drag.active = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    updateBlockPreview(event.currentTarget);
+  };
+
+  const resetBlockDrag = useCallback(() => {
+    const pointerId = blockDrag.current?.pointerId;
+    blockDrag.current = null;
+    cancelAnimationFrame(blockDragFrame.current);
+    setBlockPreview(null);
+    if (pointerId !== undefined && columnRef.current?.hasPointerCapture(pointerId)) {
+      columnRef.current.releasePointerCapture(pointerId);
+    }
+  }, []);
+
+  const finishBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = blockDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    resetBlockDrag();
+    if (!isEditable) return;
+
+    drag.clientY = event.clientY;
+    const timing = dragTiming(drag, drag.active ? dragOffset(drag, event.currentTarget) : 0);
+    if (drag.kind === 'create') {
+      if (onDraftCreate) setEditorState({ initial: { ...timing, label: '', type: config?.default_type ?? 'focus' } });
+      return;
+    }
+    if (!drag.active || !onDraftUpdate) return;
+    if (timing.start !== drag.block.start || timing.duration !== drag.block.duration) {
+      try {
+        onDraftUpdate(drag.block.id, timing);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'This change does not fit.');
+      }
+    }
+  };
+
+  const cancelBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (blockDrag.current?.pointerId === event.pointerId) resetBlockDrag();
+  };
+
+  useEffect(() => {
+    const column = columnRef.current;
+    const preventPanDuringLongPress = (event: TouchEvent) => {
+      const drag = blockDrag.current;
+      if (drag?.touchStarted !== undefined && event.timeStamp - drag.touchStarted >= touchHoldMs && event.cancelable) {
+        event.preventDefault();
+      }
+    };
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (blockDrag.current && event.key === 'Escape') {
+        event.preventDefault();
+        resetBlockDrag();
+      }
+    };
+    column?.addEventListener('touchmove', preventPanDuringLongPress, { passive: false });
+    window.addEventListener('blur', resetBlockDrag);
+    document.addEventListener('keydown', cancelWithEscape);
+    return () => {
+      cancelAnimationFrame(blockDragFrame.current);
+      column?.removeEventListener('touchmove', preventPanDuringLongPress);
+      window.removeEventListener('blur', resetBlockDrag);
+      document.removeEventListener('keydown', cancelWithEscape);
+    };
+  }, [resetBlockDrag]);
+
+  const events = useMemo(() => {
+    const saved = new Map(savedRevision?.blocks.map((block) => [block.id, block]));
+    return revision.blocks.map((block) =>
         buildScheduleEvent({
           block,
           revision,
           selectedDate,
           editable: isEditable,
-          isUnsaved: Boolean(savedRevision && JSON.stringify(savedRevision.blocks.find((saved) => saved.id === block.id)) !== JSON.stringify(block)),
+          isUnsaved: Boolean(savedRevision && JSON.stringify(saved.get(block.id)) !== JSON.stringify(block)),
           timeFormat,
         }),
-      ),
-    [isEditable, revision, savedRevision, selectedDate, timeFormat],
-  );
+    );
+  }, [isEditable, revision, savedRevision, selectedDate, timeFormat]);
+  const eventsRef = useRef(events);
+  const calendarRendered = useRef(false);
+  useLayoutEffect(() => {
+    eventsRef.current = events;
+    if (calendarRendered.current) eventsServicePlugin.set(events);
+  }, [events, eventsServicePlugin]);
 
   const openEditor = useCallback(
-    (blockId: string, isNew: boolean, anchor?: InlineEditorAnchor) => {
-      const fallbackElement = findBlockElement(surfaceRef.current, blockId);
-      const resolvedAnchor =
-        anchor ??
-        (fallbackElement
-          ? elementAnchor(fallbackElement)
-          : { top: 120, left: 120, width: 240, height: 80 });
-
-      setEditorState({ blockId, isNew, anchor: resolvedAnchor });
+    (blockId: string) => {
+      if (findBlockElement(surfaceRef.current, blockId)) setEditorState({ blockId });
     },
     [],
   );
-  const openEditorRef = useRef(openEditor);
-  useEffect(() => {
-    openEditorRef.current = openEditor;
-  });
-
   // ── Calendar config ──
-  // useCalendarApp creates the calendar ONCE (empty useEffect deps).
-  // All callbacks are captured at mount and never refreshed, so we
-  // read volatile values from latestRef / openEditorRef inside them.
   const calendarConfig = useMemo<CalendarConfig>(
     () => ({
       views: [dayView],
@@ -766,183 +918,10 @@ function RevisionCalendarRuntime({
             : { hour: "2-digit", minute: "2-digit", hour12: false },
       },
       callbacks: {
-        onMouseDownDateTime: (_, mouseDownEvent) => {
-          const ctx = latestRef.current;
-          if (
-            !ctx.isEditable ||
-            !ctx.onDraftCreate ||
-            mouseDownEvent.button !== 0
-          ) {
-            return;
-          }
-
-          const target =
-            mouseDownEvent.target instanceof Element
-              ? mouseDownEvent.target
-              : null;
-          if (target?.closest(".sx__time-grid-event")) {
-            return;
-          }
-
-          const dayElement = target?.closest(".sx__time-grid-day");
-          if (!(dayElement instanceof HTMLElement)) {
-            return;
-          }
-
-          mouseDownEvent.preventDefault();
-          const dayRect = dayElement.getBoundingClientRect();
-          const surfaceRect = surfaceRef.current?.getBoundingClientRect();
-          if (!surfaceRect) {
-            return;
-          }
-          const startMin = pointerToMinutes({
-            clientY: mouseDownEvent.clientY,
-            dayRect,
-            startBoundary: ctx.startBoundary,
-            endBoundary: ctx.endBoundary,
-            slotStep: ctx.slotStep,
-          });
-
-          const initial: DragSelectionState = {
-            dayRect,
-            surfaceRect,
-            startMinutes: startMin,
-            endMinutes: startMin,
-          };
-          dragRef.current = initial;
-          setDragSelection(initial);
-
-          // ── Register listeners synchronously so mouseup is caught ──
-          // In a quick click, mousedown and mouseup fire in the same
-          // browser task.  A useEffect-based listener would only register
-          // after the next React render — too late for the mouseup.
-          const handleMouseMove = (event: MouseEvent) => {
-            const c = latestRef.current;
-            const next: DragSelectionState | null = dragRef.current
-              ? {
-                  ...dragRef.current,
-                  endMinutes: pointerToMinutes({
-                    clientY: event.clientY,
-                    dayRect: dragRef.current.dayRect,
-                    startBoundary: c.startBoundary,
-                    endBoundary: c.endBoundary,
-                    slotStep: c.slotStep,
-                  }),
-                }
-              : null;
-            dragRef.current = next;
-            setDragSelection(next);
-          };
-
-          const handleMouseUp = () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-
-            const current = dragRef.current;
-            dragRef.current = null;
-            setDragSelection(null);
-
-            const c = latestRef.current;
-            if (!current || !c.onDraftCreate) {
-              return;
-            }
-
-            const moved =
-              Math.abs(current.endMinutes - current.startMinutes) >= c.slotStep;
-            const nextStart = Math.min(
-              current.startMinutes,
-              current.endMinutes,
-            );
-            const nextDuration = moved
-              ? clampDuration(
-                  Math.abs(current.endMinutes - current.startMinutes),
-                  c.config,
-                )
-              : clampDuration(c.defaultDuration, c.config);
-            const block = c.onDraftCreate({
-              label: "New block",
-              start: formatTime(nextStart),
-              duration: nextDuration,
-              type: c.config?.default_type ?? "focus",
-            });
-
-            const anchor = selectionAnchor({
-              dayRect: current.dayRect,
-              startMinutes: nextStart,
-              endMinutes: nextStart + nextDuration,
-              startBoundary: c.startBoundary,
-              endBoundary: c.endBoundary,
-            });
-
-            // Defer the editor open to the next event-loop tick.  onDraftCreate
-            // queued parent state updates; React flushes them before the timeout
-            // fires, so revision.blocks already contains the new block.
-            setTimeout(() => openEditorRef.current(block.id, true, anchor), 0);
-          };
-
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp, { once: true });
-        },
-        onEventClick: (event, uiEvent) => {
-          if (!latestRef.current.isEditable || !event.block) {
-            return;
-          }
-
-          const target =
-            uiEvent.target instanceof Element
-              ? uiEvent.target.closest("[data-block-id]")
-              : null;
-          openEditorRef.current(
-            event.block.id,
-            false,
-            target instanceof HTMLElement ? elementAnchor(target) : undefined,
-          );
-        },
-        onDoubleClickEvent: (event, uiEvent) => {
-          if (!latestRef.current.isEditable || !event.block) {
-            return;
-          }
-
-          const target =
-            uiEvent.target instanceof Element
-              ? uiEvent.target.closest("[data-block-id]")
-              : null;
-          openEditorRef.current(
-            event.block.id,
-            false,
-            target instanceof HTMLElement ? elementAnchor(target) : undefined,
-          );
-        },
-        onBeforeEventUpdateAsync: async (_, updatedEvent) => {
-          const ctx = latestRef.current;
-          if (!ctx.isEditable || !ctx.onDraftUpdate) return false;
-          if (
-            !(updatedEvent.start instanceof Temporal.ZonedDateTime) ||
-            !(updatedEvent.end instanceof Temporal.ZonedDateTime)
-          ) {
-            return false;
-          }
-          if (!updatedEvent.block) {
-            return false;
-          }
-
-          ctx.onDraftUpdate(updatedEvent.block.id, {
-            start: toPlannerTimeString(updatedEvent.start, ctx.slotStep),
-            duration: clampDuration(
-              Math.max(
-                ctx.slotStep,
-                (updatedEvent.end.epochMilliseconds -
-                  updatedEvent.start.epochMilliseconds) /
-                  60_000,
-              ),
-              ctx.config,
-            ),
-          });
-
-          requestAnimationFrame(() => {
-            openEditorRef.current(updatedEvent.block.id, false);
-          });
-
-          return true;
+        onRender: () => {
+          // The adapter can expose a CalendarApp before its plugins are ready.
+          calendarRendered.current = true;
+          eventsServicePlugin.set(eventsRef.current);
         },
       },
     }),
@@ -955,9 +934,9 @@ function RevisionCalendarRuntime({
       endBoundary,
       gridStep,
       gridHeight,
-      eventWidth,
       timeFormat,
       themeMode,
+      eventsServicePlugin,
     ],
   );
 
@@ -972,6 +951,10 @@ function RevisionCalendarRuntime({
     let frame = 0;
     let aligned = false;
     const syncGrid = () => {
+      if (isHistory) {
+        const view = column.querySelector<HTMLElement>('.sx__view-container');
+        if (view) view.tabIndex = -1;
+      }
       // Schedule-X mounts its grid after the React adapter. Style its built-in
       // labels once the grid is present, and wait for scrollable content before
       // aligning the active day to the current hour.
@@ -1000,12 +983,12 @@ function RevisionCalendarRuntime({
         );
       });
 
-      if (!compact && !aligned && column.scrollHeight > column.clientHeight) {
+      if (!aligned && column.scrollHeight > column.clientHeight) {
         const now = new Date();
-        const preferredMinutes =
-          selectedDate === todayString()
+        const preferredMinutes = scrollPositions?.current.get(selectedDate) ??
+          (selectedDate === todayString()
             ? floorToHour(now.getHours() * 60 + now.getMinutes() - 60)
-            : startBoundary;
+            : startBoundary);
         const minutes = Math.max(
           startBoundary,
           Math.min(preferredMinutes, endBoundary),
@@ -1019,7 +1002,7 @@ function RevisionCalendarRuntime({
       const expectedHours = Math.ceil((endBoundary - startBoundary) / gridStep);
       if (
         hours.length >= expectedHours &&
-        (compact || aligned || column.scrollHeight <= column.clientHeight)
+        (aligned || column.scrollHeight <= column.clientHeight)
       ) {
         observer.disconnect();
       }
@@ -1036,35 +1019,15 @@ function RevisionCalendarRuntime({
     };
   }, [
     calendarApp,
-    compact,
+    isHistory,
     selectedDate,
     startBoundary,
     endBoundary,
     gridHeight,
     gridStep,
+    scrollPositions,
   ]);
 
-  // useCalendarApp ignores config changes after mount, so the initial
-  // events are set from the config and all subsequent updates go through
-  // the events service plugin to avoid full calendar re-creation.
-  useEffect(() => {
-    if (calendarApp) {
-      eventsServicePlugin.set(events);
-    }
-  }, [calendarApp, events, eventsServicePlugin]);
-  const selectionPreview =
-    dragSelection && isEditable
-      ? selectionAnchor({
-          dayRect: dragSelection.dayRect,
-          startMinutes: dragSelection.startMinutes,
-          endMinutes:
-            dragSelection.endMinutes === dragSelection.startMinutes
-              ? dragSelection.startMinutes + slotStep
-              : dragSelection.endMinutes,
-          startBoundary,
-          endBoundary,
-        })
-      : null;
   const scheduleSurfaceStyle = useMemo<CSSProperties>(() => {
     const gridSteps = Math.max(
       1,
@@ -1076,70 +1039,79 @@ function RevisionCalendarRuntime({
       "--sx-week-grid-hour-height": `${gridHeight / gridSteps}px`,
     } as CSSProperties;
   }, [endBoundary, gridHeight, gridStep, startBoundary]);
-  const selectionPreviewStyle =
-    selectionPreview && dragSelection
-      ? {
-          left: selectionPreview.left - dragSelection.surfaceRect.left,
-          top: selectionPreview.top - dragSelection.surfaceRect.top,
-          width: selectionPreview.width,
-          height: Math.max(selectionPreview.height, 32),
-        }
-      : null;
 
   return (
     <div
       ref={surfaceRef}
       className={cn(
         "planner-calendar__surface relative",
-        compact && "planner-calendar__surface--compact",
-        isEditable
-          ? "planner-calendar__surface--active"
-          : "planner-calendar__surface--readonly",
+        !isEditable && "planner-calendar__surface--readonly",
       )}
       style={scheduleSurfaceStyle}
     >
       <div
-        className={cn(
-          "planner-calendar__column",
-          compact && "planner-calendar__column--compact",
-        )}
+        ref={columnRef}
+        className="planner-calendar__column"
         data-testid="planner-calendar-column"
+        tabIndex={isHistory ? -1 : undefined}
+        onPointerDown={startBlockDrag}
+        onPointerMove={moveBlockDrag}
+        onPointerUp={finishBlockDrag}
+        onPointerCancel={cancelBlockDrag}
+        onLostPointerCapture={(event) => {
+          if (event.target === event.currentTarget) cancelBlockDrag(event);
+        }}
+        onScroll={(event) => {
+          const column = event.currentTarget;
+          scrollPositions?.current.set(selectedDate, startBoundary + column.scrollTop * span / gridHeight);
+          onColumnScroll?.(column);
+          if (blockDrag.current?.active) updateBlockPreview(column);
+        }}
+        onKeyDownCapture={(event) => {
+          if (!isEditable || event.repeat || (event.key !== 'Enter' && event.key !== ' ') || !(event.target instanceof Element)) return;
+          const id = event.target.closest('.sx__time-grid-event')?.getAttribute('data-event-id');
+          if (!id) return;
+          // Cancel the activating key before the editor's focused input can submit.
+          event.preventDefault();
+          event.stopPropagation();
+          openEditor(id);
+        }}
+        onClickCapture={(event) => {
+          if (!isEditable || editorState || !(event.target instanceof Element)) return;
+          const id = event.target.closest('.sx__time-grid-event')?.getAttribute('data-event-id');
+          if (id) openEditor(id);
+        }}
       >
         <ScheduleXCalendar
           calendarApp={calendarApp}
           customComponents={scheduleXCustomComponents}
         />
       </div>
-      {selectionPreview ? (
-        <div
-          className="planner-calendar__selection pointer-events-none absolute rounded-[var(--db-radius)] border border-accent/60 bg-accent/15"
-          style={selectionPreviewStyle ?? undefined}
-        />
-      ) : null}
-      {visibleEditorState && editingBlock && isEditable ? (
+      {blockPreview && isEditable && <div className="planner-gesture-preview" data-testid="calendar-gesture-preview" aria-hidden="true">
+        {blockPreview.items.map(({ block, style }) => (
+          <div key={block.id} className={cn('planner-gesture-preview__block', blockPreview.error && 'status-danger')} style={style}>
+            <strong>{block.label}</strong> <span>{formatClockLabel(block.start, timeFormat)}</span>
+            {blockPreview.error && <span>{blockPreview.error}</span>}
+          </div>
+        ))}
+      </div>}
+      {editorState && (editingBlock || editingInitial) && isEditable ? (
         <PlannerInlineEditor
-          key={`${visibleEditorState.blockId}:${editingBlock.start}:${editingBlock.duration}:${editingBlock.label}`}
+          key={editingBlock?.id ?? 'new-block'}
           block={editingBlock}
-          anchor={visibleEditorState.anchor}
-          isNew={visibleEditorState.isNew}
+          initial={editingInitial}
+          getAnchor={getEditorAnchor}
           showHistory={showHistory}
           onSave={(payload) => {
-            onDraftUpdate?.(editingBlock.id, {
-              ...payload,
-              duration: clampDuration(payload.duration, config),
-            });
+            if (editingBlock) onDraftUpdate?.(editingBlock.id, payload);
+            else if (editingInitial) onDraftCreate?.(payload);
             setEditorState(null);
           }}
           onDelete={() => {
-            onDraftDelete?.(editingBlock.id);
+            if (editingBlock) onDraftDelete?.(editingBlock.id);
             setEditorState(null);
           }}
-          onCancel={() => {
-            if (visibleEditorState.isNew) {
-              onDraftDelete?.(editingBlock.id);
-            }
-            setEditorState(null);
-          }}
+          onCancel={() => setEditorState(null)}
         />
       ) : null}
     </div>
@@ -1148,110 +1120,149 @@ function RevisionCalendarRuntime({
 
 export function PlannerCalendarView({
   historyRevisions,
+  showHistory,
+  onCloseHistory,
   selectedDate,
   currentRevision,
   savedRevision,
   canEdit,
   isCommittingDraft,
   config,
+  scrollPositions,
+  gridScale = 1,
   onDraftCreate,
   onDraftUpdate,
   onDraftDelete,
 }: {
   historyRevisions: Revision[];
+  showHistory: boolean;
+  onCloseHistory: () => void;
   selectedDate: string;
   currentRevision: Revision | null;
   savedRevision?: Revision;
   canEdit: boolean;
   isCommittingDraft: boolean;
   config?: ClientConfig;
+  scrollPositions?: RefObject<Map<string, number>>;
+  gridScale?: number;
   onDraftCreate: (input: DraftBlockInput) => Block;
   onDraftUpdate: (blockId: string, payload: Record<string, unknown>) => void;
   onDraftDelete: (blockId: string) => void;
 }) {
-  const [showHistory, setShowHistory] = useState(false);
-  const [narrow, setNarrow] = useState(() => window.matchMedia?.("(max-width: 820px)").matches ?? false);
-  const historyTrigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const query = window.matchMedia("(max-width: 820px)");
-    const update = () => setNarrow(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+  const stripRef = useRef<HTMLElement>(null);
+  const mirroredScrolls = useRef(new WeakMap<HTMLElement, number>());
+  const [historyNavigation, setHistoryNavigation] = useState({ overflow: false, earlier: false, current: false });
+  const historyVisible = showHistory && historyRevisions.length > 0;
+  const currentRevisionId = currentRevision?.id;
   const showCurrentTimeLine =
     selectedDate === todayString() && Boolean(config?.show_current_time_line ?? true);
-  const orderedHistoryRevisions = useMemo(
-    () => [...historyRevisions].reverse(),
-    [historyRevisions],
-  );
 
-  const historyContent = <div className="grid max-h-[calc(100dvh-10rem)] gap-4 overflow-y-auto pr-1">
-    {orderedHistoryRevisions.map((revision) => (
-      <div key={revision.id} className="grid gap-3">
-        <RevisionHeader revision={revision} isActive={false} />
-        <RevisionCalendarColumn revision={revision} selectedDate={selectedDate} config={config} isEditable={false} compact showCurrentTimeLine={false} />
-      </div>
-    ))}
-  </div>;
+  const updateHistoryNavigation = useCallback((strip: HTMLElement) => {
+    const scrollRange = strip.scrollWidth - strip.clientWidth;
+    const next = { overflow: scrollRange > 1, earlier: scrollRange + strip.scrollLeft > 1, current: strip.scrollLeft < -1 };
+    setHistoryNavigation((previous) => previous.overflow === next.overflow && previous.earlier === next.earlier && previous.current === next.current
+      ? previous : next);
+  }, []);
+
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!historyVisible || !strip) return;
+    strip.scrollLeft = 0;
+    updateHistoryNavigation(strip);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => updateHistoryNavigation(strip));
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [currentRevisionId, historyRevisions.length, historyVisible, selectedDate, updateHistoryNavigation]);
+
+  const scrollToEarlierRevision = () => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const left = strip.getBoundingClientRect().left;
+    const earlier = Array.from(strip.children).findLast((column) => column.getBoundingClientRect().left < left - 1);
+    if (earlier) strip.scrollBy({ left: earlier.getBoundingClientRect().left - left });
+  };
+
+  const syncColumnScroll = (source: HTMLElement) => {
+    const top = source.scrollTop;
+    const mirrored = mirroredScrolls.current.get(source);
+    mirroredScrolls.current.delete(source);
+    // Assigning scrollTop dispatches another scroll event on the receiving column.
+    if (top === mirrored) return;
+    for (const column of stripRef.current?.querySelectorAll<HTMLElement>('.planner-calendar__column') ?? []) {
+      if (column === source || column.scrollTop === top) continue;
+      column.scrollTop = top;
+      mirroredScrolls.current.set(column, column.scrollTop);
+    }
+  };
 
   return (
     <div className="planner-calendar grid gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted">
-          {canEdit
-            ? "Click or drag to plan your day. Edits stay in your draft until saved."
-            : "Earlier intent is preserved in history."}
-        </p>
-        <Button
-          ref={historyTrigger}
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowHistory((current) => !current)}
-          disabled={historyRevisions.length === 0}
-        >
-          {showHistory ? (
-            <EyeOff className="h-4 w-4" />
-          ) : (
-            <Eye className="h-4 w-4" />
-          )}
-          {showHistory ? "Hide history" : "Show history"}
-        </Button>
-      </div>
-
-      <div
-        className={cn(
-          "grid gap-4",
-          showHistory && !narrow && orderedHistoryRevisions.length > 0
-            ? "xl:grid-cols-[minmax(0,1fr)_245px]"
-            : "xl:grid-cols-1",
-        )}
+      {historyVisible && historyNavigation.overflow && (
+        <div role="group" aria-label="History navigation" className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" size="sm" disabled={!historyNavigation.earlier} onClick={scrollToEarlierRevision}>
+            <ChevronLeft aria-hidden="true" className="size-4" />
+            Earlier revision
+          </Button>
+          <Button variant="outline" size="sm" disabled={!historyNavigation.current} onClick={() => stripRef.current?.scrollTo({ left: 0 })}>
+            Current plan
+            <ChevronsRight aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
+      )}
+      <section
+        ref={stripRef}
+        aria-label={historyVisible ? "Plan revisions" : undefined}
+        tabIndex={historyVisible ? 0 : undefined}
+        className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
+        onScroll={historyVisible ? (event) => updateHistoryNavigation(event.currentTarget) : undefined}
+        onKeyDown={(event) => {
+          if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
+          event.preventDefault();
+          onCloseHistory();
+        }}
       >
-        {showHistory && !narrow && orderedHistoryRevisions.length > 0 ? (
-          <aside className="planner-calendar__history-panel order-2 grid gap-4 xl:order-2 xl:sticky xl:top-6 xl:self-start">
-            <div className="flex items-center gap-2 px-1 text-sm text-ink">
-              Plan revisions
-            </div>
-            {historyContent}
-          </aside>
-        ) : null}
-
+        {historyVisible && historyRevisions.map((revision, index) => (
+          <section
+            key={revision.id}
+            aria-label={`Revision ${revision.id}`}
+            className="planner-calendar__revision grid min-w-0 gap-3"
+            style={{ gridColumn: historyRevisions.length - index + 1 }}
+          >
+            <RevisionHeader revision={revision} isActive={false} />
+            <RevisionCalendarColumn
+              revision={revision}
+              selectedDate={selectedDate}
+              config={config}
+              scrollPositions={scrollPositions}
+              gridScale={gridScale}
+              isEditable={false}
+              isHistory
+              showCurrentTimeLine={false}
+              onColumnScroll={syncColumnScroll}
+            />
+          </section>
+        ))}
         <section
-          className="order-1 grid gap-3 min-w-0 w-full xl:order-1"
+          aria-label={currentRevisionId ? `Revision ${currentRevisionId}` : undefined}
+          className="planner-calendar__revision grid min-w-0 gap-3"
           data-testid="planner-calendar"
         >
           {currentRevision ? (
             <>
-              <RevisionHeader revision={currentRevision} isActive={canEdit} />
+              <RevisionHeader revision={currentRevision} isActive />
               <RevisionCalendarColumn
                 key={selectedDate}
                 revision={currentRevision}
                 savedRevision={savedRevision}
                 selectedDate={selectedDate}
                 config={config}
+                scrollPositions={scrollPositions}
+                gridScale={gridScale}
                 isEditable={canEdit && !isCommittingDraft}
                 showCurrentTimeLine={showCurrentTimeLine}
-                showHistory={showHistory}
+                showHistory={historyVisible}
+                onColumnScroll={historyVisible ? syncColumnScroll : undefined}
                 onDraftCreate={onDraftCreate}
                 onDraftUpdate={onDraftUpdate}
                 onDraftDelete={onDraftDelete}
@@ -1263,14 +1274,7 @@ export function PlannerCalendarView({
             </div>
           )}
         </section>
-      </div>
-      <Dialog open={showHistory && narrow} onOpenChange={setShowHistory}>
-        <DialogContent className="planner-history-drawer planner-calendar" onCloseAutoFocus={(event) => { event.preventDefault(); historyTrigger.current?.focus(); }}>
-          <DialogTitle>Plan revisions</DialogTitle>
-          <DialogDescription className="mb-6">Earlier plans remain available as saved revisions.</DialogDescription>
-          {historyContent}
-        </DialogContent>
-      </Dialog>
+      </section>
     </div>
   );
 }

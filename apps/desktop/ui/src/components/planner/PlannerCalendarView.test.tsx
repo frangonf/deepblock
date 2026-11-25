@@ -15,10 +15,6 @@ vi.mock('@schedule-x/current-time', () => ({
   createCurrentTimePlugin: () => ({ name: 'current-time' }),
 }));
 
-vi.mock('@schedule-x/drag-and-drop', () => ({
-  createDragAndDropPlugin: () => ({ name: 'drag-and-drop' }),
-}));
-
 vi.mock('@schedule-x/events-service', () => ({
   createEventsServicePlugin: () => ({ set: setEvents }),
 }));
@@ -26,10 +22,6 @@ vi.mock('@schedule-x/events-service', () => ({
 vi.mock('@schedule-x/react', () => ({
   ScheduleXCalendar: () => <div data-testid="schedule-x-calendar" />,
   useCalendarApp: () => ({ name: 'calendar-app' }),
-}));
-
-vi.mock('@schedule-x/resize', () => ({
-  createResizePlugin: () => ({ name: 'resize' }),
 }));
 
 function makeBlock(overrides: Partial<Block> = {}): Block {
@@ -64,12 +56,14 @@ function makeRevision(id: string, blocks: Block[]): Revision {
 function renderPlannerCalendarView({
   historyRevisions = [makeRevision('A', [makeBlock()])],
   currentRevision = makeRevision('B', [makeBlock({ id: 'block-2', label: 'Review draft' })]),
+  showHistory = false,
   isDraftDirty = true,
   isCommittingDraft = false,
   config = undefined,
 }: {
   historyRevisions?: Revision[];
   currentRevision?: Revision | null;
+  showHistory?: boolean;
   isDraftDirty?: boolean;
   isCommittingDraft?: boolean;
   config?: ClientConfig;
@@ -85,6 +79,8 @@ function renderPlannerCalendarView({
     <PlannerDraftControls dirty={isDraftDirty} saving={isCommittingDraft} conflict={false} changeCount={1} reason="" onReasonChange={vi.fn()} onSave={onCommitDraft} onDiscard={onDiscardDraft} onRebase={() => {}} />
     <PlannerCalendarView
       historyRevisions={historyRevisions}
+      showHistory={showHistory}
+      onCloseHistory={vi.fn()}
       selectedDate="2026-04-20"
       currentRevision={currentRevision}
       canEdit
@@ -137,54 +133,31 @@ describe('PlannerCalendarView', () => {
   });
 
   describe('revisionTimeWindow', () => {
-    it('uses full-day boundaries for the active planner column by default', () => {
-      const result = revisionTimeWindow({
-        revision: makeRevision('A', []),
-        config: undefined,
-        slotStep: 15,
-        compact: false,
-      });
+    it('uses full-day boundaries for revision columns by default', () => {
+      const result = revisionTimeWindow({});
 
       expect(result).toEqual({
         startBoundary: 0,
         endBoundary: 1440,
         gridHeight: 1440,
-        eventWidth: 96,
       });
     });
 
-    it('compacts history columns around the revision blocks', () => {
-      const result = revisionTimeWindow({
-        revision: makeRevision('A', [
-          makeBlock({ id: 'block-1', start: '09:00', duration: 60 }),
-          makeBlock({ id: 'block-2', start: '12:00', duration: 120 }),
-        ]),
-        config: undefined,
-        slotStep: 15,
-        compact: true,
-      });
+    it('scales the grid without changing the time boundaries', () => {
+      const result = revisionTimeWindow({ gridScale: 1.25 });
 
       expect(result).toEqual({
-        startBoundary: 480,
-        endBoundary: 900,
-        gridHeight: 294,
-        eventWidth: 88,
+        startBoundary: 0,
+        endBoundary: 1440,
+        gridHeight: 1800,
       });
     });
   });
 
   describe('draft controls', () => {
-    it('toggles history visibility and triggers draft actions', () => {
-      const { onCommitDraft, onDiscardDraft } = renderPlannerCalendarView();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
-      expect(screen.getByText('Plan revisions')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Hide history' }));
-      expect(screen.queryByText('Plan revisions')).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
-      expect(screen.getByText('Plan revisions')).toBeInTheDocument();
+    it('shows requested history and triggers draft actions', () => {
+      const { onCommitDraft, onDiscardDraft } = renderPlannerCalendarView({ showHistory: true });
+      expect(screen.getByRole('region', { name: 'Plan revisions' })).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('planner-discard-draft'));
       fireEvent.click(screen.getByTestId('planner-commit-replan'));
@@ -196,8 +169,9 @@ describe('PlannerCalendarView', () => {
     it('shows the saved state and disables draft actions when nothing is staged', () => {
       renderPlannerCalendarView({ isDraftDirty: false });
 
+      expect(screen.queryByRole('region', { name: 'Plan revisions' })).not.toBeInTheDocument();
       expect(screen.getByText('All changes saved')).toBeInTheDocument();
-      expect(screen.getByTestId('planner-discard-draft')).toBeDisabled();
+      expect(screen.queryByTestId('planner-discard-draft')).not.toBeInTheDocument();
       expect(screen.getByTestId('planner-commit-replan')).toBeDisabled();
     });
   });

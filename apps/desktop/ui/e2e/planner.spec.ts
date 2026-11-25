@@ -4,12 +4,10 @@ test('planner supports add, artifact, and revise flows', async ({ page }) => {
   const suffix = Date.now().toString().slice(-6);
   const blockLabel = `Deep Work ${suffix}`;
   const artifact = `https://example.com/${suffix}`;
-  const activeRevisionBadge = page.getByText(/Active revision /);
+  const activeRevision = page.getByTestId('revision-column');
 
   await page.goto('/planner');
   await page.getByTestId('planner-view-list').click();
-
-  const initialActiveRevision = await activeRevisionBadge.textContent();
 
   await page.getByRole('button', { name: 'Add block' }).click();
   await page.getByLabel('Label').fill(blockLabel);
@@ -26,14 +24,13 @@ test('planner supports add, artifact, and revise flows', async ({ page }) => {
   await expect(page.getByRole('dialog').getByText(artifact)).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
-  await page.getByText('Plan actions', { exact: true }).click();
+  const previousRevision = await activeRevision.getAttribute('data-revision-id');
+  await page.getByLabel('Plan actions', { exact: true }).click();
   await page.getByRole('button', { name: 'Revise', exact: true }).click();
   await page.getByLabel('Reason').fill(`Need revision ${suffix}`);
   await page.getByRole('button', { name: 'Create revision' }).click();
 
-  await expect
-    .poll(async () => await activeRevisionBadge.textContent())
-    .not.toBe(initialActiveRevision);
+  await expect.poll(() => activeRevision.getAttribute('data-revision-id')).not.toBe(previousRevision);
 
   await page.getByRole('button', { name: 'Show history' }).click();
   await expect.poll(async () => page.getByTestId('revision-column').count()).toBeGreaterThan(1);

@@ -137,7 +137,7 @@ Add an accent bundle by supplying its resting, hovered, and pressed action fills
 
 Inter 4.1 is bundled locally under [public/fonts](../apps/desktop/ui/public/fonts/) with its SIL Open Font License. It does not require a Google Fonts connection. Georgia uses the installed system font with a serif fallback. Desktop application icons and the browser favicon remain fixed identity assets; changing an application theme does not regenerate those assets.
 
-The React planner continues to use its configured day range, snapping, and revision API. Its history previews remain read-only, move to the right on wide screens, and open in a focus-contained drawer at or below 820px. Unsaved calendar blocks carry dashed warning edges and accessible state labels. Failed revision saves show a persistent error while retaining the draft and optional reason. Existing notes autosave, review, backlog, settings, and audit behavior remain governed by their feature documentation. The prototype focus timer and extra keyboard shortcuts are not added by this visual implementation.
+The React planner uses its configured day range, snapping, and revision API. Read-only history columns sit to the left of the current plan and share its time scale. Unsaved calendar blocks carry dashed warning edges and accessible state labels. Failed revision saves show a persistent error while retaining the draft and optional reason. Notes, review, backlog, settings, and audit behavior follow their feature documentation.
 
 ## Typography
 
@@ -160,24 +160,24 @@ Block titles wrap to two lines when height permits. Compact blocks show one line
 
 Use a 4px base spacing scale: 4, 8, 12, 16, 24, 32, and 48px. Typical spacing is 8px within controls, 16px within groups, and 24–32px between sections.
 
-| Foundation                | Reference rule                                                 |
-| ------------------------- | -------------------------------------------------------------- |
-| Desktop shell             | 190px navigation sidebar, flexible planner, 245px history rail |
-| Wide screens, from 1450px | 210px sidebar and 265px rail                                   |
-| At or below 820px         | History moves to a drawer; retain visible History access       |
-| At or below 580px         | Navigation becomes horizontal; controls use 44px targets       |
-| Calendar scale            | 80px per hour; reference editing snap is 15 minutes            |
-| Schedule viewport         | Reference 520px desktop / 490px mobile, with normal scrolling  |
-| Corners                   | 4px controls and blocks, 6px specimen cards, 10px modal        |
-| Borders                   | 1px ordinarily; dashed edges identify unsaved blocks           |
-| Depth                     | Flat planner surfaces; shadow reserved for overlays            |
-| Motion                    | 140ms state transitions; respect reduced-motion preferences    |
+| Foundation                | Reference rule                                                |
+| ------------------------- | ------------------------------------------------------------- |
+| Desktop shell             | 190px navigation sidebar and a flexible planner               |
+| Wide screens, from 1450px | 210px sidebar                                                 |
+| Revision history          | Side-by-side calendar columns with horizontal overflow        |
+| At or below 580px         | Navigation becomes horizontal; controls use 44px targets      |
+| Calendar scale            | 80px per hour; reference editing snap is 15 minutes           |
+| Schedule viewport         | Reference 520px desktop / 490px mobile, with normal scrolling |
+| Corners                   | 4px controls and blocks, 6px specimen cards, 10px modal       |
+| Borders                   | 1px ordinarily; dashed edges identify unsaved blocks          |
+| Depth                     | Flat planner surfaces; shadow reserved for overlays           |
+| Motion                    | 140ms state transitions; respect reduced-motion preferences   |
 
 The prototype's 09:00–18:00 range and 240-minute editor maximum are sample constraints. Production day range, snapping, duration limits, and validation must follow the application's supported configuration and feature rules.
 
 Keep the schedule scrollbar thin and muted: approximately 6px, transparent track, rounded thumb, and a modest hover change. Preserve visible scroll affordance and keyboard scrolling. Reserve gutter space to avoid content shifting.
 
-Keep revision history optional on desktop. Hiding the rail gives the calendar more room; history remains accessible through a button. On narrow screens use a modal drawer and a visible save/status bar. Layout and typography must work at 200% zoom without hiding essential actions.
+Keep revision history optional. The history button reveals aligned, read-only calendar columns beside the current plan. Offer horizontal navigation when the columns outgrow the window. Reserve space for Save and draft status below the scrollable workspace. Layout and typography must work at 200% zoom without hiding essential actions.
 
 ## Component contracts
 

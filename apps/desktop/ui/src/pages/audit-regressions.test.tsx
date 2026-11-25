@@ -75,7 +75,7 @@ it('retains block fields across parent renders and submits their draft values', 
   await waitFor(() => expect(submit).toHaveBeenCalledWith({ label: 'Work', start: '11:00', duration: 90, type: 'focus', status: 'done', focus_rating: 4, next_action: 'Ship', content_path: 'work.md' }));
   expect(close).toHaveBeenCalledWith(false);
 });
-it('explains form limits before submission', () => { page(<BlockDialog open block={null} onOpenChange={vi.fn()} onSubmit={vi.fn()} />); expect(screen.getByLabelText('Label')).toBeRequired(); expect(screen.getByText('15–480 minutes; must finish before midnight.')).toBeInTheDocument(); expect(screen.getByText('Optional · 1 (low) to 5 (high).')).toBeInTheDocument(); });
+it('explains form limits before submission', () => { page(<BlockDialog open block={null} onOpenChange={vi.fn()} onSubmit={vi.fn()} />); expect(screen.getByLabelText('Label')).toBeRequired(); expect(screen.getByText('15–480 minutes, ending by midnight.')).toBeInTheDocument(); expect(screen.getByText('Optional · 1 (low) to 5 (high).')).toBeInTheDocument(); });
 it('labels ActivityWatch as live and keeps event details collapsed', async () => {
   const { ActivityWatchPage } = await import('./ActivityWatchPage');
   vi.mocked(api.getActivityWatchSummary).mockResolvedValue({ device_id: 'test-device', hostname: 'local', server_version: 'test', current_status: 'not-afk', current_window: null, current_web_tab: null, watchers: [], today: { active_seconds: 0, top_apps: [], top_domains: [], recent_windows: [{ timestamp: '2026-10-01T12:00:00', duration_seconds: 60, app: 'Editor', title: 'Example', url: null, domain: null, status: null }] } });

@@ -201,21 +201,48 @@ test('semantic themes preserve readable action states and independent status col
   await expect(action).toHaveCSS('outline-width', '2px');
 });
 
-test('narrow history opens a modal and returns keyboard focus', async ({ page, request }) => {
+test('narrow history opens on the current column and scrolls left to earlier revisions', async ({ page, request }) => {
+  expect((await request.post(`${api}/blocks`, {
+    data: { label: 'Readable history anchor', start: '15:00', duration: 30, type: 'focus' },
+  })).ok()).toBeTruthy();
   const firstIntent = `First intent ${Date.now()}`;
   for (const reason of [firstIntent, 'Updated intent']) {
     expect((await request.post(`${api}/plan/revise`, { data: { reason, copy_mode: 'all' } })).ok()).toBeTruthy();
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/planner');
-  const trigger = page.getByRole('button', { name: 'Show history' });
+  const trigger = page.getByRole('button', { name: /^(Show|Hide) history$/ });
   await trigger.click();
-  const drawer = page.getByRole('dialog', { name: 'Plan revisions' });
-  await expect(drawer).toBeVisible();
-  await expect(drawer.getByText(firstIntent)).toBeVisible();
+  const strip = page.getByRole('region', { name: 'Plan revisions' });
+  await expect(strip).toBeVisible();
+  await expect(strip.getByText(firstIntent)).toBeVisible();
+  const currentHeader = page.getByTestId('planner-calendar').getByTestId('calendar-resource-header');
+  const gapFromRight = () => currentHeader.evaluate((header) => {
+    const strip = header.closest('[aria-label="Plan revisions"]')!;
+    return header.getBoundingClientRect().right - strip.getBoundingClientRect().right;
+  });
+  await expect.poll(gapFromRight, { timeout: 5000 }).toBeLessThanOrEqual(1);
+  await expect(currentHeader).toBeInViewport({ ratio: 0.99 });
+  await page.setViewportSize({ width: 480, height: 844 });
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
+
+  await strip.focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator(':focus').locator('xpath=ancestor::section[@data-testid="planner-calendar"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Earlier revision', exact: true }).click();
+  await expect.poll(gapFromRight).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Current plan', exact: true }).click();
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
+  await strip.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(gapFromRight).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
-  await expect(drawer).toBeHidden();
+  await expect(strip).toBeHidden();
   await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -229,6 +256,7 @@ test('failed revision saves retain the draft and reason for retry', async ({ pag
   await page.getByRole('button', { name: 'Apply to draft', exact: true }).click();
   const event = page.getByTestId('planner-calendar').getByTestId('calendar-event').filter({ hasText: label });
   await expect(event).toHaveAttribute('data-unsaved', 'true');
+  await page.getByLabel('Draft actions', { exact: true }).click();
   await page.getByPlaceholder('What prompted this revision?').fill(reason);
   await page.evaluate(() => { document.documentElement.dataset.mode = 'light'; document.documentElement.dataset.palette = 'cobalt'; });
   await expect(event).toHaveAttribute('data-unsaved', 'true');
