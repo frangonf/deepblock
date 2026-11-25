@@ -100,6 +100,7 @@ These areas remain deferred, with prerequisites recorded in the advanced vision:
 4. **Mandatory checkout, AI coaching, rich-text notes, and generalized synchronization** add product scope without establishing the initial observation boundary.
 5. **Safari/WebDriver-native desktop E2E on macOS** remains opt-in. Add focused native validation where the recorder/helper needs it, while preserving stable default Playwright coverage.
 6. **Voice/research agents, phone monitoring, broad process tracing, and continuous media archives** remain later extensions of the independent contracts.
+7. **A terminal planner** has a [Ratatui prototype proposal](../features/ratatui-planner.md) for keyboard-first planning over SSH. Production work depends on the prototype demonstrating value in the daily draft and revision workflow.
 
 ## Ongoing validation
 
@@ -110,7 +111,6 @@ the tested revision and workload; these checks extend completed functionality.
 ## Non goals
 
 - Recreating the removed Python clients
-- Reintroducing a standalone TUI
 - Rewriting the shared UI or coupling planning storage/transactions to observation processing
 - Coupling future evidence storage to the canonical planning database or bypassing migration and recovery validation for later schema changes
 - Closing every conventional feature gap before recorder research, or enabling a prototype in production without capability-specific validation
