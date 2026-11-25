@@ -389,8 +389,8 @@ test('history shows read-only revision columns aligned to the current timeline',
   const currentAnchor = (await active.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
   const previousAnchor = (await previous.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
   const earliestAnchor = (await earliest.getByTestId('calendar-event').filter({ hasText: 'Shared anchor' }).boundingBox())!;
-  expect(currentAnchor.x).toBeLessThan(previousAnchor.x);
-  expect(previousAnchor.x).toBeLessThan(earliestAnchor.x);
+  expect(earliestAnchor.x).toBeLessThan(previousAnchor.x);
+  expect(previousAnchor.x).toBeLessThan(currentAnchor.x);
   expect(previousAnchor.y).toBeCloseTo(currentAnchor.y, 0);
   expect(earliestAnchor.y).toBeCloseTo(currentAnchor.y, 0);
 

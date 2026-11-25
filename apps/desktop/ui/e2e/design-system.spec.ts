@@ -201,7 +201,7 @@ test('semantic themes preserve readable action states and independent status col
   await expect(action).toHaveCSS('outline-width', '2px');
 });
 
-test('narrow history scrolls between columns and returns keyboard focus', async ({ page, request }) => {
+test('narrow history opens on the current column and scrolls left to earlier revisions', async ({ page, request }) => {
   const firstIntent = `First intent ${Date.now()}`;
   for (const reason of [firstIntent, 'Updated intent']) {
     expect((await request.post(`${api}/plan/revise`, { data: { reason, copy_mode: 'all' } })).ok()).toBeTruthy();
@@ -213,12 +213,23 @@ test('narrow history scrolls between columns and returns keyboard focus', async 
   const strip = page.getByRole('region', { name: 'Plan revisions' });
   await expect(strip).toBeVisible();
   await expect(strip.getByText(firstIntent)).toBeVisible();
+  const currentHeader = page.getByTestId('planner-calendar').getByTestId('calendar-resource-header');
+  const gapFromRight = () => strip.evaluate((element) => element.scrollWidth - element.clientWidth - element.scrollLeft);
+  await expect.poll(gapFromRight, { timeout: 5000 }).toBeLessThanOrEqual(1);
+  await expect(currentHeader).toBeInViewport({ ratio: 0.99 });
+  await page.setViewportSize({ width: 480, height: 844 });
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
+
   await strip.focus();
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(gapFromRight).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   await expect(strip).toBeHidden();
   await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect.poll(gapFromRight).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

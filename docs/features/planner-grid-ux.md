@@ -26,10 +26,11 @@ The calendar keeps the visible time when saving, zooming, or returning to a day
 within the Planner. The draft status and Save action stay in reach while editing.
 The zoom buttons change the calendar scale for the current Planner session.
 **Show history** sits beside the Calendar and List tabs and stays open when
-switching views. In Calendar it places each saved revision in a read-only
-column beside the current plan, newest first. The columns share the same hours,
-vertical scroll, and zoom. Scroll sideways to reach more revisions. With the
-revision area focused, Escape closes history and returns focus to the toggle.
+switching views. Calendar shows read-only revisions from oldest to newest,
+with the current plan on the right. The view opens on the current plan, and
+you can scroll left to see earlier revisions. The columns share the same hours,
+vertical scroll, and zoom. With the revision area focused, Escape closes
+history and returns focus to the toggle.
 If the day has no earlier saved revisions, the planner says so. Artifact links
 remain saved-block metadata: save or discard draft changes before managing them.
 Today and future days support draft editing and saving. Past days remain read-only.

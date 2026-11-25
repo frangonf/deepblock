@@ -1099,12 +1099,27 @@ export function PlannerCalendarView({
   const stripRef = useRef<HTMLElement>(null);
   const mirroredScrolls = useRef(new WeakMap<HTMLElement, number>());
   const historyVisible = showHistory && historyRevisions.length > 0;
+  const currentRevisionId = currentRevision?.id;
   const showCurrentTimeLine =
     selectedDate === todayString() && Boolean(config?.show_current_time_line ?? true);
-  const orderedHistoryRevisions = useMemo(
-    () => [...historyRevisions].reverse(),
-    [historyRevisions],
-  );
+
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!historyVisible || !strip) return;
+
+    let rightEdge = strip.scrollWidth - strip.clientWidth;
+    strip.scrollLeft = rightEdge;
+    const keepCurrentInView = () => {
+      const nextRightEdge = strip.scrollWidth - strip.clientWidth;
+      // Keep the current plan in view on resize if the user is still at the right edge.
+      if (Math.abs(strip.scrollLeft - Math.min(rightEdge, nextRightEdge)) <= 1) {
+        strip.scrollLeft = nextRightEdge;
+      }
+      rightEdge = nextRightEdge;
+    };
+    window.addEventListener("resize", keepCurrentInView);
+    return () => window.removeEventListener("resize", keepCurrentInView);
+  }, [currentRevisionId, historyVisible, selectedDate]);
 
   const syncColumnScroll = (source: HTMLElement) => {
     const top = source.scrollTop;
@@ -1143,14 +1158,30 @@ export function PlannerCalendarView({
         aria-label={historyVisible ? "Plan revisions" : undefined}
         tabIndex={historyVisible ? 0 : undefined}
         className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
+        style={historyVisible ? { "--planner-history-count": historyRevisions.length } as CSSProperties : undefined}
         onKeyDown={(event) => {
           if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
           event.preventDefault();
           onCloseHistory();
         }}
       >
+        {historyVisible && historyRevisions.map((revision) => (
+          <section key={revision.id} aria-label={`Revision ${revision.id}`} className="planner-calendar__revision grid min-w-0 gap-3">
+            <RevisionHeader revision={revision} isActive={false} />
+            <RevisionCalendarColumn
+              revision={revision}
+              selectedDate={selectedDate}
+              config={config}
+              scrollPositions={scrollPositions}
+              gridScale={gridScale}
+              isEditable={false}
+              showCurrentTimeLine={false}
+              onColumnScroll={syncColumnScroll}
+            />
+          </section>
+        ))}
         <section
-          aria-label={currentRevision ? `Revision ${currentRevision.id}` : undefined}
+          aria-label={currentRevisionId ? `Revision ${currentRevisionId}` : undefined}
           className="planner-calendar__revision grid min-w-0 gap-3"
           data-testid="planner-calendar"
         >
@@ -1180,21 +1211,6 @@ export function PlannerCalendarView({
             </div>
           )}
         </section>
-        {historyVisible && orderedHistoryRevisions.map((revision) => (
-          <section key={revision.id} aria-label={`Revision ${revision.id}`} className="planner-calendar__revision grid min-w-0 gap-3">
-            <RevisionHeader revision={revision} isActive={false} />
-            <RevisionCalendarColumn
-              revision={revision}
-              selectedDate={selectedDate}
-              config={config}
-              scrollPositions={scrollPositions}
-              gridScale={gridScale}
-              isEditable={false}
-              showCurrentTimeLine={false}
-              onColumnScroll={syncColumnScroll}
-            />
-          </section>
-        ))}
       </section>
     </div>
   );
