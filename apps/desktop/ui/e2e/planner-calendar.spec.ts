@@ -1,5 +1,64 @@
 import { expect, test } from './fixtures';
 
+test('a calendar block moves with the pointer and stays in the draft until saved', async ({ page, request }) => {
+  const date = '2041-06-20';
+  const planUrl = `http://127.0.0.1:8010/plan/${date}`;
+  expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+    data: { label: 'Write proposal', start: '09:00', duration: 60, type: 'focus' },
+  })).ok()).toBe(true);
+  await page.goto(`/planner?date=${date}`);
+  const calendar = page.getByTestId('planner-calendar');
+  const event = calendar.getByRole('button', { name: /^Write proposal,/ });
+  await event.scrollIntoViewIfNeeded();
+  const box = (await event.boundingBox())!;
+  const grid = (await calendar.locator('.sx__time-grid-day').boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + 12;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + grid.height / 48, { steps: 4 });
+  await page.mouse.up();
+
+  await expect(event).toHaveAccessibleName(/^Write proposal, 09:30 to 10:30,/);
+  await expect(page.getByTestId('planner-inline-editor')).toHaveCount(0);
+  const before = await (await request.get(planUrl)).json();
+  expect(before.revisions.at(-1).blocks[0].start).toBe('09:00');
+  await page.getByTestId('planner-commit-replan').click();
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  const after = await (await request.get(planUrl)).json();
+  expect(after.revisions.at(-1).blocks[0].start).toBe('09:30');
+});
+
+test('resizing previews displaced blocks before release and stages the result without opening an editor', async ({ page, request }) => {
+  const date = '2041-06-21';
+  for (const [label, start] of [['Focus session', '09:00'], ['Meeting', '10:00'], ['Follow-up', '11:00']]) {
+    expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+      data: { label, start, duration: 60, type: 'focus' },
+    })).ok()).toBe(true);
+  }
+  await page.goto(`/planner?date=${date}`);
+  const calendar = page.getByTestId('planner-calendar');
+  const focus = calendar.getByRole('button', { name: /^Focus session,/ });
+  const handle = focus.locator('.sx__time-grid-event-resize-handle');
+  await handle.scrollIntoViewIfNeeded();
+  const box = (await handle.boundingBox())!;
+  const grid = (await calendar.locator('.sx__time-grid-day').boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + grid.height / 96, { steps: 4 });
+
+  const preview = calendar.getByTestId('calendar-gesture-preview');
+  await expect(preview).toContainText(/Meeting.*10:15/);
+  await expect(preview).toContainText(/Follow-up.*11:15/);
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  await page.mouse.up();
+  await expect(calendar.getByRole('button', { name: /^Follow-up, 11:15 to 12:15,/ })).toBeVisible();
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByTestId('planner-inline-editor')).toHaveCount(0);
+});
+
 test('calendar and list share a draft, with explicit save and discard', async ({ page, request }) => {
   const label = `Shared draft ${Date.now()}`;
   // This test exercises a revision after an initial commitment; new-plan A

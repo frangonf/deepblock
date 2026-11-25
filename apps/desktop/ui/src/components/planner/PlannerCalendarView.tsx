@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -15,10 +16,8 @@ import {
   type CalendarEvent,
 } from "@schedule-x/calendar";
 import { createCurrentTimePlugin } from "@schedule-x/current-time";
-import { createDragAndDropPlugin } from "@schedule-x/drag-and-drop";
 import { createEventsServicePlugin } from "@schedule-x/events-service";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { createResizePlugin } from "@schedule-x/resize";
 import { Eye, EyeOff } from "lucide-react";
 import { Temporal } from "temporal-polyfill";
 
@@ -42,7 +41,7 @@ import {
   parseTime,
   todayString,
 } from "@/lib/utils";
-import type { DraftBlockInput } from "@/components/planner/calendarDraft";
+import { applyDraftUpdate, type DraftBlockInput } from "@/components/planner/calendarDraft";
 
 const dayView = createViewDay();
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -95,21 +94,26 @@ type DragSelectionState = {
   endMinutes: number;
 };
 
+type BlockDrag = {
+  pointerId: number;
+  block: Block;
+  resize: boolean;
+  originY: number;
+  originScroll: number;
+  clientY: number;
+  active: boolean;
+  offset?: number;
+  preview?: { blocks: Block[]; error?: string };
+};
+
+type BlockTiming = { start: string; duration: number };
+
 function clampDuration(value: number, config?: ClientConfig) {
   const interval = Math.max(1, config?.rounding_interval ?? 15);
   const minDuration = config?.min_duration ?? 15;
   const maxDuration = config?.max_duration ?? 480;
   const rounded = Math.max(interval, Math.round(value / interval) * interval);
   return Math.min(maxDuration, Math.max(minDuration, rounded));
-}
-
-function normalizeMinutes(totalMinutes: number) {
-  const minutesInDay = 24 * 60;
-  return ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
-}
-
-function roundMinutes(totalMinutes: number, interval: number) {
-  return normalizeMinutes(Math.round(totalMinutes / interval) * interval);
 }
 
 function scheduleGridStep(roundingInterval?: number): 180 | 120 | 60 | 30 | 15 {
@@ -143,15 +147,6 @@ function zonedDateTimeAt(date: string, time: string) {
     timeZone: localTimezone,
     plainTime: Temporal.PlainTime.from(time),
   });
-}
-
-function toPlannerTimeString(
-  dateTime: Temporal.ZonedDateTime,
-  interval: number,
-) {
-  return formatTime(
-    roundMinutes(dateTime.hour * 60 + dateTime.minute, interval),
-  );
 }
 
 function formatClockLabel(
@@ -266,6 +261,7 @@ function PlannerTimeGridEvent({
           <div className="planner-event__next">Next: {block.next_action}</div>
         ) : null}
       </div>
+      {calendarEvent.isEditable && <span className="sx__time-grid-event-resize-handle" aria-hidden="true" />}
     </div>
   );
 }
@@ -642,11 +638,18 @@ function RevisionCalendarRuntime({
     null,
   );
   const dragRef = useRef<DragSelectionState | null>(null);
+  const blockDrag = useRef<BlockDrag | null>(null);
+  const blockDragFrame = useRef(0);
+  const [blockPreview, setBlockPreview] = useState<{
+    items: { block: Block; style: CSSProperties }[];
+    error?: string;
+  } | null>(null);
   const slotStep = Math.max(5, config?.rounding_interval ?? 15);
   const gridStep = scheduleGridStep(config?.rounding_interval);
   const defaultDuration = config?.default_duration ?? 60;
   const timeFormat = config?.time_format ?? "24h";
   const { startBoundary, endBoundary, gridHeight, eventWidth } = timeWindow;
+  const span = endBoundary - startBoundary;
   const editingBlock = useMemo(
     () =>
       editorState
@@ -663,7 +666,6 @@ function RevisionCalendarRuntime({
   const latestRef = useRef({
     isEditable,
     onDraftCreate,
-    onDraftUpdate,
     slotStep,
     startBoundary,
     endBoundary,
@@ -674,7 +676,6 @@ function RevisionCalendarRuntime({
     latestRef.current = {
       isEditable,
       onDraftCreate,
-      onDraftUpdate,
       slotStep,
       startBoundary,
       endBoundary,
@@ -686,23 +687,127 @@ function RevisionCalendarRuntime({
   const eventsServicePlugin = useMemo(() => createEventsServicePlugin(), []);
 
   const plugins = useMemo(() => {
-    const nextPlugins: ReturnType<
-      | typeof createEventsServicePlugin
-      | typeof createCurrentTimePlugin
-      | typeof createDragAndDropPlugin
-      | typeof createResizePlugin
-    >[] = [eventsServicePlugin];
+    return showCurrentTimeLine ? [eventsServicePlugin, createCurrentTimePlugin()] : [eventsServicePlugin];
+  }, [eventsServicePlugin, showCurrentTimeLine]);
 
-    if (showCurrentTimeLine) {
-      nextPlugins.push(createCurrentTimePlugin());
-    }
-    if (isEditable) {
-      nextPlugins.push(createDragAndDropPlugin(slotStep));
-      nextPlugins.push(createResizePlugin(slotStep));
-    }
+  const startBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isEditable || !event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
+    const id = event.target.closest('.sx__time-grid-event')?.getAttribute('data-event-id');
+    const block = revision.blocks.find((candidate) => candidate.id === id);
+    if (!block) return;
+    blockDrag.current = {
+      pointerId: event.pointerId,
+      block,
+      resize: Boolean(event.target.closest('.sx__time-grid-event-resize-handle')),
+      originY: event.clientY,
+      originScroll: event.currentTarget.scrollTop,
+      clientY: event.clientY,
+      active: false,
+    };
+  };
 
-    return nextPlugins;
-  }, [eventsServicePlugin, isEditable, showCurrentTimeLine, slotStep]);
+  const dragOffset = (drag: BlockDrag, column: HTMLDivElement) => {
+    const deltaY = drag.clientY - drag.originY + column.scrollTop - drag.originScroll;
+    return Math.round(deltaY * span / gridHeight / slotStep) * slotStep;
+  };
+
+  const dragTiming = (drag: BlockDrag, offset: number): BlockTiming => {
+    const { start, duration } = drag.block;
+    if (offset === 0) return { start, duration };
+    const minutes = parseTime(start);
+    if (drag.resize) {
+      return { start, duration: Math.min(endBoundary - minutes, clampDuration(duration + offset, config)) };
+    }
+    const next = Math.max(startBoundary, Math.min(endBoundary - duration, minutes + offset));
+    return { start: formatTime(next), duration };
+  };
+
+  const updateBlockPreview = (column: HTMLDivElement) => {
+    cancelAnimationFrame(blockDragFrame.current);
+    blockDragFrame.current = requestAnimationFrame(() => {
+      const drag = blockDrag.current;
+      if (!drag?.active) return;
+      const offset = dragOffset(drag, column);
+      const grid = column.querySelector('.sx__time-grid-day');
+      const surface = surfaceRef.current;
+      if (!grid || !surface) return;
+      if (drag.offset !== offset) {
+        drag.offset = offset;
+        const timing = dragTiming(drag, offset);
+        const original = new Map(revision.blocks.map((block) => [block.id, block]));
+        try {
+          const blocks = applyDraftUpdate(revision.blocks, drag.block.id, timing).filter((block) => {
+            const before = original.get(block.id);
+            return block.id === drag.block.id || before?.start !== block.start || before?.duration !== block.duration;
+          });
+          drag.preview = { blocks };
+        } catch (error) {
+          drag.preview = {
+            blocks: [{ ...drag.block, ...timing }],
+            error: error instanceof Error ? error.message : 'This change does not fit.',
+          };
+        }
+      }
+      const area = surface.getBoundingClientRect();
+      const day = grid.getBoundingClientRect();
+      if (drag.preview) setBlockPreview({
+        error: drag.preview.error,
+        items: drag.preview.blocks.map((block) => {
+          const start = parseTime(block.start);
+          const anchor = selectionAnchor({ dayRect: day, startMinutes: start, endMinutes: start + block.duration, startBoundary, endBoundary });
+          return { block, style: {
+            left: anchor.left - area.left,
+            top: anchor.top - area.top,
+            width: anchor.width * eventWidth / 100,
+            height: anchor.height,
+          } };
+        }),
+      });
+      const scroller = column.getBoundingClientRect();
+      const top = Math.max(0, scroller.top);
+      const bottom = Math.min(window.innerHeight, scroller.bottom);
+      const edge = 28;
+      const rate = drag.clientY < top + edge ? -8 : drag.clientY > bottom - edge ? 8 : 0;
+      const before = column.scrollTop;
+      if (rate) column.scrollTop += rate;
+      if (column.scrollTop !== before) updateBlockPreview(column);
+    });
+  };
+
+  const moveBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = blockDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag.clientY = event.clientY;
+    if (!drag.active) {
+      if (Math.abs(event.clientY - drag.originY) < 4) return;
+      drag.active = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    updateBlockPreview(event.currentTarget);
+  };
+
+  const resetBlockDrag = () => {
+    blockDrag.current = null;
+    cancelAnimationFrame(blockDragFrame.current);
+    setBlockPreview(null);
+  };
+
+  const finishBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = blockDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    resetBlockDrag();
+    if (!drag.active || !isEditable || !onDraftUpdate) return;
+
+    drag.clientY = event.clientY;
+    const timing = dragTiming(drag, dragOffset(drag, event.currentTarget));
+    if (timing.start !== drag.block.start || timing.duration !== drag.block.duration) onDraftUpdate(drag.block.id, timing);
+  };
+
+  const cancelBlockDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (blockDrag.current?.pointerId === event.pointerId) resetBlockDrag();
+  };
+
+  useEffect(() => () => cancelAnimationFrame(blockDragFrame.current), []);
 
   const events = useMemo(
     () =>
@@ -912,38 +1017,6 @@ function RevisionCalendarRuntime({
             target instanceof HTMLElement ? elementAnchor(target) : undefined,
           );
         },
-        onBeforeEventUpdateAsync: async (_, updatedEvent) => {
-          const ctx = latestRef.current;
-          if (!ctx.isEditable || !ctx.onDraftUpdate) return false;
-          if (
-            !(updatedEvent.start instanceof Temporal.ZonedDateTime) ||
-            !(updatedEvent.end instanceof Temporal.ZonedDateTime)
-          ) {
-            return false;
-          }
-          if (!updatedEvent.block) {
-            return false;
-          }
-
-          ctx.onDraftUpdate(updatedEvent.block.id, {
-            start: toPlannerTimeString(updatedEvent.start, ctx.slotStep),
-            duration: clampDuration(
-              Math.max(
-                ctx.slotStep,
-                (updatedEvent.end.epochMilliseconds -
-                  updatedEvent.start.epochMilliseconds) /
-                  60_000,
-              ),
-              ctx.config,
-            ),
-          });
-
-          requestAnimationFrame(() => {
-            openEditorRef.current(updatedEvent.block.id, false);
-          });
-
-          return true;
-        },
       },
     }),
     // Only structural layout values — no events, no callback identities.
@@ -1104,12 +1177,26 @@ function RevisionCalendarRuntime({
           compact && "planner-calendar__column--compact",
         )}
         data-testid="planner-calendar-column"
+        onPointerDown={startBlockDrag}
+        onPointerMove={moveBlockDrag}
+        onPointerUp={finishBlockDrag}
+        onPointerCancel={cancelBlockDrag}
+        onLostPointerCapture={cancelBlockDrag}
+        onScroll={(event) => { if (blockDrag.current?.active) updateBlockPreview(event.currentTarget); }}
       >
         <ScheduleXCalendar
           calendarApp={calendarApp}
           customComponents={scheduleXCustomComponents}
         />
       </div>
+      {blockPreview && isEditable && <div className="planner-gesture-preview" data-testid="calendar-gesture-preview" aria-hidden="true">
+        {blockPreview.items.map(({ block, style }) => (
+          <div key={block.id} className={cn('planner-gesture-preview__block', blockPreview.error && 'status-danger')} style={style}>
+            <strong>{block.label}</strong> <span>{formatClockLabel(block.start, timeFormat)}</span>
+            {blockPreview.error && <span>{blockPreview.error}</span>}
+          </div>
+        ))}
+      </div>}
       {selectionPreview ? (
         <div
           className="planner-calendar__selection pointer-events-none absolute rounded-[var(--db-radius)] border border-accent/60 bg-accent/15"

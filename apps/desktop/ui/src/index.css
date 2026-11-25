@@ -169,7 +169,8 @@ textarea {
 }
 
 .planner-calendar .planner-calendar__event-shell--editable {
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
 }
 
 .planner-calendar .planner-calendar__event-shell--readonly {
@@ -241,6 +242,32 @@ textarea {
   margin: 0 auto;
   border-radius: 999px;
   background: var(--db-muted);
+}
+
+.planner-gesture-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.planner-gesture-preview__block {
+  position: absolute;
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  overflow: hidden;
+  border: 1px dashed var(--db-focus);
+  border-radius: var(--db-radius-control);
+  background: color-mix(in srgb, var(--db-raised) 92%, transparent);
+  color: var(--db-ink);
+  font-size: 0.75rem;
+}
+
+.planner-gesture-preview__block.status-danger {
+  border-color: var(--db-danger);
 }
 
 .app-shell {

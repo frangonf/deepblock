@@ -15,10 +15,6 @@ vi.mock('@schedule-x/current-time', () => ({
   createCurrentTimePlugin: () => ({ name: 'current-time' }),
 }));
 
-vi.mock('@schedule-x/drag-and-drop', () => ({
-  createDragAndDropPlugin: () => ({ name: 'drag-and-drop' }),
-}));
-
 vi.mock('@schedule-x/events-service', () => ({
   createEventsServicePlugin: () => ({ set: setEvents }),
 }));
@@ -26,10 +22,6 @@ vi.mock('@schedule-x/events-service', () => ({
 vi.mock('@schedule-x/react', () => ({
   ScheduleXCalendar: () => <div data-testid="schedule-x-calendar" />,
   useCalendarApp: () => ({ name: 'calendar-app' }),
-}));
-
-vi.mock('@schedule-x/resize', () => ({
-  createResizePlugin: () => ({ name: 'resize' }),
 }));
 
 function makeBlock(overrides: Partial<Block> = {}): Block {

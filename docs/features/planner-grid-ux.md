@@ -33,7 +33,9 @@ its inline editor without discarding staged blocks. Block creation also works on
 plain HTTP LAN origins, using cryptographic random identifiers when the browser's
 secure-context-only UUID API is unavailable.
 
-Moves and resizes ripple overlapping live blocks. Preview and server both order
+Dragging or resizing a block previews where it and affected blocks will land.
+Releasing stages the change without opening the editor. Moves and resizes ripple
+overlapping live blocks. Preview and server both order
 equal starts by label (Unicode code-point order); identical labels keep their
 input order. Cancelled blocks neither consume ripple time nor displace other
 blocks. Invalid times and cascades extending past 24:00 are rejected without

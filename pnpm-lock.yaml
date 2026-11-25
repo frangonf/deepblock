@@ -61,18 +61,12 @@ importers:
       '@schedule-x/current-time':
         specifier: 4.9.1
         version: 4.9.1
-      '@schedule-x/drag-and-drop':
-        specifier: 3.7.3
-        version: 3.7.3
       '@schedule-x/events-service':
         specifier: 4.9.1
         version: 4.9.1
       '@schedule-x/react':
         specifier: 4.1.0
         version: 4.1.0(@schedule-x/calendar@4.9.1(@preact/signals@2.11.4(preact@10.29.8))(preact@10.29.8)(temporal-polyfill@0.3.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@schedule-x/resize':
-        specifier: 3.7.3
-        version: 3.7.3
       '@schedule-x/theme-default':
         specifier: 4.9.1
         version: 4.9.1
@@ -1220,9 +1214,6 @@ packages:
   '@schedule-x/current-time@4.9.1':
     resolution: {integrity: sha512-S47vMs1/jrRUJss3mE3Xc7DuZ/4S3N2+VO3i2M13I2rSVkBWdODCE4UTGNEIJTfq5TE1Jt2o0wSsnAMIRLPI7A==}
 
-  '@schedule-x/drag-and-drop@3.7.3':
-    resolution: {integrity: sha512-nHwZKzdIKWNTdT5BEXy4vLlHOmOH3C3M744QUIU0EOXPAFZQR1bBTviGs2NhmvaLiGstnVx2/TZtdhocy60hgg==}
-
   '@schedule-x/events-service@4.9.1':
     resolution: {integrity: sha512-7pZMC6Khh4/i5PwTkCJzYb4qxVuFHKi+ho5xmkLu0Kv7HNO9z06rkcJw4Kc88bsbMJLkLXi6vTnHFClROIEZVg==}
 
@@ -1232,9 +1223,6 @@ packages:
       '@schedule-x/calendar': ^3.1.0 || ^4.0.0
       react: ^16.7.0 || ^17 || ^18 || ^19
       react-dom: ^16.7.0 || ^17 || ^18 || ^19
-
-  '@schedule-x/resize@3.7.3':
-    resolution: {integrity: sha512-rdzsBx6Dw7d7jwYb8IQzphTwxAofegn1caVaWEdv9WTj8RkLzDILgpM2Oe6KHtpgjMcUWs6aKBaPirJh0T9VZg==}
 
   '@schedule-x/theme-default@4.9.1':
     resolution: {integrity: sha512-mCe0Ly9ZEBc1nsEDq2vTVvASSmM6oO5a4Nt+ogeYBnsZIBk3w9pk2IcaJHcXqHIS0uA1b8TzmjlpgvorvMtZ7w==}
@@ -4198,8 +4186,6 @@ snapshots:
 
   '@schedule-x/current-time@4.9.1': {}
 
-  '@schedule-x/drag-and-drop@3.7.3': {}
-
   '@schedule-x/events-service@4.9.1': {}
 
   '@schedule-x/react@4.1.0(@schedule-x/calendar@4.9.1(@preact/signals@2.11.4(preact@10.29.8))(preact@10.29.8)(temporal-polyfill@0.3.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
@@ -4207,8 +4193,6 @@ snapshots:
       '@schedule-x/calendar': 4.9.1(@preact/signals@2.11.4(preact@10.29.8))(preact@10.29.8)(temporal-polyfill@0.3.2)
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
-
-  '@schedule-x/resize@3.7.3': {}
 
   '@schedule-x/theme-default@4.9.1': {}
 
