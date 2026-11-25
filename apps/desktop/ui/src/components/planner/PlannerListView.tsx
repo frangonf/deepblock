@@ -1,8 +1,6 @@
 import { useState } from "react";
 import {
   ClipboardPenLine,
-  Eye,
-  EyeOff,
   GripVertical,
   PencilLine,
   Trash2,
@@ -36,6 +34,7 @@ export function PlannerListView({
   revisions,
   activeRevisionId,
   canEdit,
+  showHistory,
   onEditBlock,
   onOpenArtifacts,
   canManageArtifacts = true,
@@ -47,6 +46,7 @@ export function PlannerListView({
   revisions: Revision[];
   activeRevisionId: string | null;
   canEdit: boolean;
+  showHistory: boolean;
   onEditBlock: (block: Block) => void;
   onOpenArtifacts: (block: Block) => void;
   canManageArtifacts?: boolean;
@@ -57,7 +57,6 @@ export function PlannerListView({
 }) {
   const [dragState, setDragState] = useState<DragState>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
 
   const resetDragState = () => {
     setDragState(null);
@@ -349,42 +348,25 @@ export function PlannerListView({
   };
 
   return (
-    <div className="grid w-full min-w-0 gap-4">
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowHistory((current) => !current)}
-          disabled={revisions.length <= 1}
-        >
-          {showHistory ? (
-            <EyeOff className="h-4 w-4" />
-          ) : (
-            <Eye className="h-4 w-4" />
-          )}
-          {showHistory ? "Hide history" : "Show history"}
-        </Button>
-      </div>
-      <div className="grid gap-6">
-        {activeRevision
-          ? renderRevisionCard(activeRevision, historyRevisions.length)
-          : null}
+    <div className="grid w-full min-w-0 gap-6">
+      {activeRevision
+        ? renderRevisionCard(activeRevision, historyRevisions.length)
+        : null}
 
-        {showHistory && historyRevisions.length > 0 ? (
-          <div className="grid gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="flex items-center gap-4 py-2 opacity-50">
-              <div className="h-px flex-1 bg-line" />
-              <span className="text-xs uppercase tracking-widest text-ink">
-                Past intent
-              </span>
-              <div className="h-px flex-1 bg-line" />
-            </div>
-            {historyRevisions.map((revision, index) =>
-              renderRevisionCard(revision, historyRevisions.length - 1 - index),
-            )}
+      {showHistory && historyRevisions.length > 0 ? (
+        <div className="grid gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-4 py-2 opacity-50">
+            <div className="h-px flex-1 bg-line" />
+            <span className="text-xs uppercase tracking-widest text-ink">
+              Past intent
+            </span>
+            <div className="h-px flex-1 bg-line" />
           </div>
-        ) : null}
-      </div>
+          {historyRevisions.map((revision, index) =>
+            renderRevisionCard(revision, historyRevisions.length - 1 - index),
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,6 @@ import { useThemeMode } from "@/hooks/use-theme-mode";
 import {
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -20,7 +19,7 @@ import {
 import { createCurrentTimePlugin } from "@schedule-x/current-time";
 import { createEventsServicePlugin } from "@schedule-x/events-service";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { Eye, EyeOff, Minus, Plus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -1066,6 +1065,8 @@ function RevisionCalendarRuntime({
 
 export function PlannerCalendarView({
   historyRevisions,
+  showHistory,
+  onCloseHistory,
   selectedDate,
   currentRevision,
   savedRevision,
@@ -1080,6 +1081,8 @@ export function PlannerCalendarView({
   onDraftDelete,
 }: {
   historyRevisions: Revision[];
+  showHistory: boolean;
+  onCloseHistory: () => void;
   selectedDate: string;
   currentRevision: Revision | null;
   savedRevision?: Revision;
@@ -1093,10 +1096,7 @@ export function PlannerCalendarView({
   onDraftUpdate: (blockId: string, payload: Record<string, unknown>) => void;
   onDraftDelete: (blockId: string) => void;
 }) {
-  const [showHistory, setShowHistory] = useState(false);
-  const stripId = useId();
   const stripRef = useRef<HTMLElement>(null);
-  const historyTrigger = useRef<HTMLButtonElement>(null);
   const mirroredScrolls = useRef(new WeakMap<HTMLElement, number>());
   const historyVisible = showHistory && historyRevisions.length > 0;
   const showCurrentTimeLine =
@@ -1136,35 +1136,17 @@ export function PlannerCalendarView({
             <Plus aria-hidden="true" className="size-4" />
           </Button>
         </div>}
-        <Button
-          ref={historyTrigger}
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowHistory((current) => !current)}
-          disabled={historyRevisions.length === 0}
-          aria-expanded={historyVisible}
-          aria-controls={stripId}
-        >
-          {historyVisible ? (
-            <EyeOff className="h-4 w-4" />
-          ) : (
-            <Eye className="h-4 w-4" />
-          )}
-          {historyVisible ? "Hide history" : "Show history"}
-        </Button>
       </div>
 
       <section
         ref={stripRef}
-        id={stripId}
         aria-label={historyVisible ? "Plan revisions" : undefined}
         tabIndex={historyVisible ? 0 : undefined}
         className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
         onKeyDown={(event) => {
           if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
           event.preventDefault();
-          setShowHistory(false);
-          historyTrigger.current?.focus();
+          onCloseHistory();
         }}
       >
         <section

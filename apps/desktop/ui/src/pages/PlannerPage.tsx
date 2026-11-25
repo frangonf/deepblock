@@ -11,6 +11,8 @@ import {
 } from "@tanstack/react-query";
 import {
   CalendarDays,
+  Eye,
+  EyeOff,
   LayoutGrid,
   NotebookTabs,
   Plus,
@@ -57,6 +59,8 @@ export function PlannerPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedDate, setSelectedDate] = useSelectedDate();
   const [plannerView, setPlannerView] = useState<PlannerViewMode>("calendar");
+  const [showHistory, setShowHistory] = useState(false);
+  const historyTrigger = useRef<HTMLButtonElement>(null);
   const [blockDialogInitialValues, setBlockDialogInitialValues] = useState<
     BlockDialogInitialValues | undefined
   >(undefined);
@@ -533,7 +537,7 @@ export function PlannerPage() {
                 setPlannerView(value as PlannerViewMode)
               }
             >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
                 <TabsList>
                   <TabsTrigger
                     value="calendar"
@@ -547,11 +551,30 @@ export function PlannerPage() {
                     List
                   </TabsTrigger>
                 </TabsList>
+                <Button
+                  ref={historyTrigger}
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={showHistory}
+                  onClick={() => setShowHistory((current) => !current)}
+                >
+                  {showHistory ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
+                  {showHistory ? "Hide history" : "Show history"}
+                </Button>
               </div>
+
+              {showHistory && historyRevisions.length === 0 && (
+                <p role="status" className="mt-3 text-sm text-muted">No earlier saved revisions for this day.</p>
+              )}
 
               <TabsContent value="calendar">
                 <PlannerCalendarView
                   historyRevisions={historyRevisions}
+                  showHistory={showHistory}
+                  onCloseHistory={() => {
+                    setShowHistory(false);
+                    historyTrigger.current?.focus();
+                  }}
                   selectedDate={selectedDate}
                   currentRevision={currentCalendarRevision}
                   savedRevision={activeRevision ?? undefined}
@@ -569,6 +592,7 @@ export function PlannerPage() {
 
               <TabsContent value="list">
                 <PlannerListView
+                  showHistory={showHistory}
                   revisions={plan.revisions.map((revision) =>
                     revision.id === activeRevision?.id &&
                     currentCalendarRevision

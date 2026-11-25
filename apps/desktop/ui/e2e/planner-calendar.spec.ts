@@ -319,6 +319,40 @@ test('calendar and list share a draft, with explicit save and discard', async ({
   await expect(page.getByTestId('calendar-resource-header')).toHaveCount(1);
 });
 
+test('the same history control stays open across calendar and list views', async ({ page, request }) => {
+  const date = '2041-07-11';
+  expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+    data: { label: 'Original block', start: '09:00', duration: 30, type: 'focus' },
+  })).ok()).toBe(true);
+  await page.setViewportSize({ width: 480, height: 640 });
+  await page.goto(`/planner?date=${date}`);
+  const toggle = page.getByRole('button', { name: /^(Show|Hide) history$/ });
+  await expect(page.getByTestId('planner-view-calendar')).toHaveAttribute('aria-selected', 'true');
+  await expect(toggle).toBeEnabled({ timeout: 5000 });
+  await toggle.click();
+  const empty = page.getByText('No earlier saved revisions for this day.');
+  await expect(empty).toBeVisible();
+
+  await page.getByTestId('planner-view-list').click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(empty).toBeVisible();
+  await page.getByRole('button', { name: 'Add block', exact: true }).click();
+  await page.getByLabel('Label', { exact: true }).fill('Added to revision B');
+  await page.getByLabel('Start', { exact: true }).fill('10:30');
+  await page.getByRole('button', { name: 'Apply to draft', exact: true }).click();
+  await page.getByTestId('planner-commit-replan').click();
+  await expect(page.getByTestId('revision-column')).toHaveCount(2);
+  await expect(empty).toBeHidden();
+
+  await page.getByTestId('planner-view-calendar').click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const history = page.getByRole('region', { name: 'Plan revisions' });
+  await expect(history.getByRole('region', { name: 'Revision A', exact: true }).getByText('Original block')).toBeVisible();
+  await toggle.click();
+  await expect(history).toBeHidden();
+  await expect(page.getByTestId('calendar-resource-header')).toHaveCount(1);
+});
+
 test('history shows read-only revision columns aligned to the current timeline', async ({ page, request }) => {
   const date = '2041-07-10';
   const commit = async (label: string, start: string) => {

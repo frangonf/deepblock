@@ -56,12 +56,14 @@ function makeRevision(id: string, blocks: Block[]): Revision {
 function renderPlannerCalendarView({
   historyRevisions = [makeRevision('A', [makeBlock()])],
   currentRevision = makeRevision('B', [makeBlock({ id: 'block-2', label: 'Review draft' })]),
+  showHistory = false,
   isDraftDirty = true,
   isCommittingDraft = false,
   config = undefined,
 }: {
   historyRevisions?: Revision[];
   currentRevision?: Revision | null;
+  showHistory?: boolean;
   isDraftDirty?: boolean;
   isCommittingDraft?: boolean;
   config?: ClientConfig;
@@ -77,6 +79,8 @@ function renderPlannerCalendarView({
     <PlannerDraftControls dirty={isDraftDirty} saving={isCommittingDraft} conflict={false} changeCount={1} reason="" onReasonChange={vi.fn()} onSave={onCommitDraft} onDiscard={onDiscardDraft} onRebase={() => {}} />
     <PlannerCalendarView
       historyRevisions={historyRevisions}
+      showHistory={showHistory}
+      onCloseHistory={vi.fn()}
       selectedDate="2026-04-20"
       currentRevision={currentRevision}
       canEdit
@@ -151,16 +155,8 @@ describe('PlannerCalendarView', () => {
   });
 
   describe('draft controls', () => {
-    it('toggles history visibility and triggers draft actions', () => {
-      const { onCommitDraft, onDiscardDraft } = renderPlannerCalendarView();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
-      expect(screen.getByRole('region', { name: 'Plan revisions' })).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Hide history' }));
-      expect(screen.queryByRole('region', { name: 'Plan revisions' })).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Show history' }));
+    it('shows requested history and triggers draft actions', () => {
+      const { onCommitDraft, onDiscardDraft } = renderPlannerCalendarView({ showHistory: true });
       expect(screen.getByRole('region', { name: 'Plan revisions' })).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('planner-discard-draft'));
@@ -173,6 +169,7 @@ describe('PlannerCalendarView', () => {
     it('shows the saved state and disables draft actions when nothing is staged', () => {
       renderPlannerCalendarView({ isDraftDirty: false });
 
+      expect(screen.queryByRole('region', { name: 'Plan revisions' })).not.toBeInTheDocument();
       expect(screen.getByText('All changes saved')).toBeInTheDocument();
       expect(screen.getByTestId('planner-discard-draft')).toBeDisabled();
       expect(screen.getByTestId('planner-commit-replan')).toBeDisabled();
