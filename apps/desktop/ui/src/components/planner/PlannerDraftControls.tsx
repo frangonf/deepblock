@@ -1,7 +1,7 @@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-export function PlannerDraftControls({ dirty, saving, conflict, error, changeCount, reason, onReasonChange, onSave, onDiscard, onRebase }: {
+export function PlannerDraftControls({ dirty, saving, conflict, error, changeCount, reason, onReasonChange, onSave, onDiscard, onRebase, onUndo }: {
   dirty: boolean;
   saving: boolean;
   conflict: boolean;
@@ -12,6 +12,7 @@ export function PlannerDraftControls({ dirty, saving, conflict, error, changeCou
   onSave: () => Promise<void>;
   onDiscard: () => void;
   onRebase: () => void;
+  onUndo?: () => void;
 }) {
   return (
     <div className="planner-draft-controls grid gap-2" data-dirty={dirty}>
@@ -20,8 +21,9 @@ export function PlannerDraftControls({ dirty, saving, conflict, error, changeCou
           {saving ? 'Saving revised plan…' : dirty ? `${changeCount} unsaved ${changeCount === 1 ? 'change' : 'changes'}` : 'All changes saved'}
         </span>
         <div className="flex items-center gap-2">
+          {dirty && onUndo && <Button variant="ghost" size="sm" onClick={onUndo} disabled={saving} aria-keyshortcuts="Control+Z Meta+Z">Undo edit</Button>}
           <Button variant="ghost" size="sm" data-testid="planner-discard-draft" onClick={onDiscard} disabled={!dirty || saving}>Discard changes</Button>
-          <Button size="sm" data-testid="planner-commit-replan" onClick={() => { void onSave().catch(() => { /* Mutation errors are shown by the planner. */ }); }} disabled={!dirty || saving || conflict}>
+          <Button size="sm" aria-keyshortcuts="Control+S Meta+S" data-testid="planner-commit-replan" onClick={() => { void onSave().catch(() => { /* Mutation errors are shown by the planner. */ }); }} disabled={!dirty || saving || conflict}>
             {saving ? 'Saving…' : 'Save revised plan'}
           </Button>
         </div>

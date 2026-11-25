@@ -1,7 +1,7 @@
 import { PlannerContext } from '@/components/planner/PlannerContext';
 import { DayNavigation } from "@/components/day-navigation";
 import { useSelectedDate } from "@/hooks/use-selected-date";
-import { useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Link } from "react-router-dom";
 import {
@@ -36,7 +36,7 @@ import {
 import { useConfig } from "@/hooks/use-config";
 import { useDayPlan } from "@/hooks/use-day-plan";
 import { usePlannerDraft } from "@/hooks/use-planner-draft";
-import { formatMinutes, formatTime, parseTime, todayString } from "@/lib/utils";
+import { formatMinutes, formatTime, parseTime, shiftDate, todayString } from "@/lib/utils";
 import {
   ArtifactDialog,
   BlockDialog,
@@ -67,6 +67,8 @@ export function PlannerPage() {
   const isCommittingDraft =
     useIsMutating({ mutationKey: ["planner-draft"] }) > 0;
   const queryClient = useQueryClient();
+  const calendarScroll = useRef(new Map<string, number>());
+  const [calendarScale, setCalendarScale] = useState(1);
 
   const planQuery = useDayPlan(
     selectedDate === todayString() ? undefined : selectedDate,
@@ -264,6 +266,46 @@ export function PlannerPage() {
     setBlockDialogInitialValues(initialValues);
     setIsBlockDialogOpen(true);
   };
+  const addBlock = () => openNewBlockDialog({
+    duration: configQuery.data?.default_duration ?? 60,
+    type: configQuery.data?.default_type ?? 'focus',
+  });
+
+  const saveDraft = async () => {
+    await commitDraftMutation.mutateAsync({ date: selectedDate, submittedDraft: draft });
+  };
+
+  const onPlannerShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || event.altKey || isCommittingDraft) return;
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (document.querySelector('[role="dialog"]')) return;
+
+    const key = event.key.toLowerCase();
+    if (event.ctrlKey || event.metaKey) {
+      if (!canEdit || !isDraftDirty) return;
+      if (key === 'z') {
+        event.preventDefault();
+        draft.undo();
+      } else if (key === 's' && !draft.conflict) {
+        event.preventDefault();
+        void saveDraft().catch(() => { /* The planner shows commit errors by the Save button. */ });
+      }
+      return;
+    }
+    if (key === 'c' && canEdit && activeRevision) {
+      event.preventDefault();
+      addBlock();
+    } else if (key === 't' || key === 'j' || key === 'k') {
+      event.preventDefault();
+      setSelectedDate(key === 't' ? todayString() : shiftDate(selectedDate, key === 'j' ? 1 : -1));
+    }
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => onPlannerShortcut(event);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const queuedLabel = searchParams.get("schedule");
   const queuedInitialValues =
@@ -315,7 +357,7 @@ export function PlannerPage() {
   };
 
   return (
-    <div className="grid gap-3" data-testid="planner-workspace">
+    <div className="planner-workspace grid gap-3" data-testid="planner-workspace">
       <div className="planner-toolbar">
         <div className="flex flex-wrap items-center gap-2">
           <DayNavigation
@@ -324,18 +366,14 @@ export function PlannerPage() {
             disabled={isCommittingDraft}
           />
           {activeRevision ? (
-            <Badge>Active revision {activeRevision.id}</Badge>
+            <Badge className="planner-toolbar__revision">Active revision {activeRevision.id}</Badge>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            onClick={() =>
-              openNewBlockDialog({
-                duration: configQuery.data?.default_duration ?? 60,
-                type: configQuery.data?.default_type ?? "focus",
-              })
-            }
+            aria-keyshortcuts="C"
+            onClick={addBlock}
             disabled={!canEdit || isCommittingDraft || !activeRevision}
           >
             <Plus className="h-4 w-4" />
@@ -455,13 +493,9 @@ export function PlannerPage() {
           changeCount={draft.changeCount}
           reason={draft.reason}
           onReasonChange={draft.setReason}
-          onSave={async () => {
-            await commitDraftMutation.mutateAsync({
-              date: selectedDate,
-              submittedDraft: draft,
-            });
-          }}
+          onSave={saveDraft}
           onDiscard={discardDraft}
+          onUndo={draft.undo}
           onRebase={() => {
             try {
               draft.rebase();
@@ -524,8 +558,11 @@ export function PlannerPage() {
                   canEdit={canEdit}
                   isCommittingDraft={isCommittingDraft}
                   config={configQuery.data}
+                  scrollPositions={calendarScroll}
+                  gridScale={calendarScale}
+                  onGridScaleChange={setCalendarScale}
                   onDraftCreate={stageDraftCreate}
-                  onDraftUpdate={stageDraftUpdate}
+                  onDraftUpdate={draft.update}
                   onDraftDelete={stageDraftDelete}
                 />
               </TabsContent>

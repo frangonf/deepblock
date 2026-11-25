@@ -8,7 +8,7 @@ import {
 
 const storageKey = () => `deepblock.planner-draft.v2:${draftNamespace()}`;
 const completedEvent = 'deepblock:planner-draft-completed';
-type PlannerDraft = { date: string; baseRevision: Revision; blocks: Block[]; operations: DraftOperation[]; reason?: string };
+type PlannerDraft = { date: string; baseRevision: Revision; blocks: Block[]; operations: DraftOperation[]; undoPoints?: number[]; reason?: string };
 function loadDrafts(): Record<string, PlannerDraft> {
   try {
     const raw = sessionStorage.getItem(storageKey());
@@ -21,6 +21,19 @@ function loadDrafts(): Record<string, PlannerDraft> {
 
 function newDraft(date: string, revision: Revision): PlannerDraft {
   return { date, baseRevision: { ...revision, blocks: cloneBlocks(revision.blocks) }, blocks: cloneBlocks(revision.blocks), operations: [] };
+}
+
+function replayOperations(base: Block[], operations: DraftOperation[]) {
+  let blocks = cloneBlocks(base);
+  for (const operation of operations) {
+    if (operation.type === 'create') {
+      blocks = applyDraftCreate(blocks, operation.block);
+    } else {
+      if (!blocks.some((block) => block.id === operation.blockId)) throw new Error('A draft block was deleted remotely. Your draft is retained; discard or adjust it before retrying.');
+      blocks = operation.type === 'update' ? applyDraftUpdate(blocks, operation.blockId, operation.payload) : applyDraftDelete(blocks, operation.blockId);
+    }
+  }
+  return blocks;
 }
 
 export function usePlannerDraft(date: string, revision: Revision | null, committing: boolean) {
@@ -72,11 +85,18 @@ export function usePlannerDraft(date: string, revision: Revision | null, committ
   const change = useCallback((update: (draft: PlannerDraft) => PlannerDraft) => {
     if (!revision || committing) return;
     updateDrafts((previous) => {
-      const next = update(previous[date] ?? newDraft(date, revision));
+      const before = previous[date] ?? newDraft(date, revision);
+      const next = update(before);
       if (JSON.stringify(next.blocks) === JSON.stringify(next.baseRevision.blocks)) {
         const remaining = { ...previous };
         delete remaining[date];
         return remaining;
+      }
+      const offset = before.operations.length;
+      if (next.operations.length > offset) {
+        // Drafts retained by earlier builds used one action per operation.
+        const undoPoints = before.undoPoints ?? before.operations.map((_, index) => index);
+        return { ...previous, [date]: { ...next, undoPoints: [...undoPoints, offset] } };
       }
       return { ...previous, [date]: next };
     });
@@ -110,16 +130,18 @@ export function usePlannerDraft(date: string, revision: Revision | null, committ
 
   const rebase = useCallback(() => {
     if (!revision || !current || committing) return;
-    let blocks = cloneBlocks(revision.blocks);
-    for (const operation of current.operations) {
-      if (operation.type === 'create') blocks = applyDraftCreate(blocks, operation.block);
-      else {
-        if (!blocks.some((block) => block.id === operation.blockId)) throw new Error('A draft block was deleted remotely. Your draft is retained; discard or adjust it before retrying.');
-        blocks = operation.type === 'update' ? applyDraftUpdate(blocks, operation.blockId, operation.payload) : applyDraftDelete(blocks, operation.blockId);
-      }
-    }
+    const blocks = replayOperations(revision.blocks, current.operations);
     updateDrafts((previous) => ({ ...previous, [date]: { ...current, baseRevision: { ...revision, blocks: cloneBlocks(revision.blocks) }, blocks } }));
   }, [committing, current, date, revision, updateDrafts]);
+
+  const undo = useCallback(() => {
+    if (!latestDrafts.current[date]?.operations.length) return;
+    change((draft) => {
+      const offset = draft.undoPoints?.at(-1) ?? draft.operations.length - 1;
+      const operations = draft.operations.slice(0, offset);
+      return { ...draft, operations, undoPoints: draft.undoPoints?.slice(0, -1), blocks: replayOperations(draft.baseRevision.blocks, operations) };
+    });
+  }, [change, date]);
 
   const setReason = useCallback((reason: string) => {
     if (committing) return;
@@ -138,5 +160,5 @@ export function usePlannerDraft(date: string, revision: Revision | null, committ
     window.dispatchEvent(new CustomEvent(completedEvent, { detail: date }));
   }, [date]);
   const discard = useCallback(() => { if (!committing) complete(); }, [committing, complete]);
-  return { blocks, changeCount, reason: current?.reason ?? '', setReason, operations: current?.operations ?? [], baseRevision: current?.baseRevision ?? null, dirty, conflict, create, update, updateMany, remove, rebase, discard, complete };
+  return { blocks, changeCount, reason: current?.reason ?? '', setReason, operations: current?.operations ?? [], baseRevision: current?.baseRevision ?? null, dirty, conflict, create, update, updateMany, remove, rebase, undo, discard, complete };
 }

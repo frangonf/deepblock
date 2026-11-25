@@ -57,6 +57,224 @@ test('resizing previews displaced blocks before release and stages the result wi
   await expect(calendar.getByRole('button', { name: /^Follow-up, 11:15 to 12:15,/ })).toBeVisible();
   await expect(preview).toHaveCount(0);
   await expect(page.getByTestId('planner-inline-editor')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo edit', exact: true }).click();
+  await expect(focus).toHaveAccessibleName(/^Focus session, 09:00 to 10:00,/);
+  await expect(calendar.getByRole('button', { name: /^Follow-up, 11:00 to 12:00,/ })).toBeVisible();
+});
+
+test('the calendar can create and reopen a block ending exactly at midnight', async ({ page, request }) => {
+  const date = '2041-06-22';
+  await page.goto(`/planner?date=${date}`);
+  const calendar = page.getByTestId('planner-calendar');
+  const column = calendar.getByTestId('planner-calendar-column');
+  const grid = calendar.locator('.sx__time-grid-day');
+  await expect(grid).toBeVisible();
+  await column.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const box = (await grid.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 1425 / 1440);
+  const editor = page.getByTestId('planner-inline-editor');
+  await expect(editor.getByLabel('Start', { exact: true })).toHaveValue('23:45');
+  await expect(editor.getByLabel('Duration (minutes)', { exact: true })).toHaveValue('15');
+  await editor.getByLabel('Label', { exact: true }).fill('Finish day');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  await page.getByTestId('planner-commit-replan').click();
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  const result = await (await request.get(`http://127.0.0.1:8010/plan/${date}`)).json();
+  expect(result.revisions.at(-1).blocks[0]).toMatchObject({ label: 'Finish day', start: '23:45', duration: 15 });
+  const block = calendar.getByRole('button', { name: /^Finish day, 23:45 to 24:00,/ });
+  await expect(block).toBeVisible();
+  await block.click();
+  await expect(editor.getByLabel('Label', { exact: true })).toHaveValue('Finish day');
+});
+
+test('keyboard editing preserves typed fields through a resize and a rejected time change', async ({ page, request }) => {
+  const date = '2041-06-23';
+  expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+    data: { label: 'Draft outline', start: '09:00', duration: 60, type: 'focus' },
+  })).ok()).toBe(true);
+  await page.goto(`/planner?date=${date}`);
+  const block = page.getByRole('button', { name: /^Draft outline,/ });
+  await block.press('Enter');
+  const editor = page.getByTestId('planner-inline-editor');
+  const label = editor.getByLabel('Label', { exact: true });
+  await expect(label).toBeFocused();
+  await label.fill('Typed outline');
+  await page.setViewportSize({ width: 1080, height: 760 });
+  await expect(label).toHaveValue('Typed outline');
+  await editor.getByLabel('Start', { exact: true }).fill('23:45');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('would end after 24:00');
+  await expect(label).toHaveValue('Typed outline');
+  await page.keyboard.press('Escape');
+  await expect(block).toBeFocused();
+  await expect(page.getByText('All changes saved')).toBeVisible();
+});
+
+test('saving and revisiting a day keeps the timeline at the same time', async ({ page, request }) => {
+  const date = '2041-06-24';
+  expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+    data: { label: 'Afternoon work', start: '15:00', duration: 60, type: 'focus' },
+  })).ok()).toBe(true);
+  await page.goto(`/planner?date=${date}`);
+  const calendar = page.getByTestId('planner-calendar');
+  const column = calendar.getByTestId('planner-calendar-column');
+  await calendar.getByText('Afternoon work', { exact: true }).click();
+  const editor = page.getByTestId('planner-inline-editor');
+  await editor.getByLabel('Label', { exact: true }).fill('Updated afternoon work');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  const before = await column.evaluate((element) => element.scrollTop);
+  expect(before).toBeGreaterThan(600);
+  await page.getByTestId('planner-commit-replan').click();
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  await expect.poll(() => column.evaluate((element) => element.scrollTop)).toBe(before);
+  await page.getByRole('button', { name: 'Next day', exact: true }).click();
+  await expect(page.getByLabel('Plan date')).toHaveValue('2041-06-25');
+  await expect(calendar.locator('.sx__time-grid-day')).toHaveAttribute('aria-label', 'June 25, 2041');
+  await page.getByRole('button', { name: 'Previous day', exact: true }).click();
+  await expect(calendar.getByText('Updated afternoon work', { exact: true })).toBeVisible();
+  await expect.poll(() => column.evaluate((element) => element.scrollTop)).toBe(before);
+});
+
+test('dragging to create follows scrolling and only stages a block after applying the editor', async ({ page }) => {
+  await page.goto('/planner?date=2041-06-26');
+  const calendar = page.getByTestId('planner-calendar');
+  const grid = calendar.locator('.sx__time-grid-day');
+  const column = calendar.getByTestId('planner-calendar-column');
+  await expect(grid).toBeVisible();
+  await column.evaluate((element) => { element.scrollTop = element.scrollHeight / 3; });
+  const box = (await grid.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const from = box.y + box.height * 9 / 24;
+  const to = box.y + box.height * 10 / 24;
+  const scrolled = await column.evaluate((element) => element.scrollTop);
+  await page.mouse.move(x, from);
+  await page.mouse.down();
+  await page.mouse.move(x, to, { steps: 4 });
+  await page.mouse.wheel(0, 90);
+  await expect.poll(() => column.evaluate((element) => element.scrollTop)).toBe(scrolled + 90);
+  await page.mouse.move(x + 2, to);
+  await page.mouse.up();
+  const editor = page.getByTestId('planner-inline-editor');
+  await expect(editor.getByLabel('Start', { exact: true })).toHaveValue('09:00');
+  await expect(editor.getByLabel('Duration (minutes)', { exact: true })).toHaveValue('105');
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  await editor.getByLabel('Label', { exact: true }).fill('Extended slot');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  await expect(calendar.getByRole('button', { name: /^Extended slot, 09:00 to 10:45,/ })).toBeVisible();
+  await expect(page.getByText('1 unsaved change')).toBeVisible();
+});
+
+test('touch scrolling leaves the draft alone and a held touch selects a block range', async ({ baseURL, browser, browserName }) => {
+  test.skip(browserName !== 'chromium', 'This test sends native touch input through Chromium DevTools.');
+  const context = await browser.newContext({ baseURL, hasTouch: true, viewport: { width: 1280, height: 900 } });
+  try {
+    const page = await context.newPage();
+    await page.goto('/planner?date=2041-06-27');
+    const calendar = page.getByTestId('planner-calendar');
+    const grid = calendar.locator('.sx__time-grid-day');
+    const column = calendar.getByTestId('planner-calendar-column');
+    await expect(grid).toBeVisible();
+    await column.evaluate((element) => { element.scrollTop = element.scrollHeight / 3; });
+    const client = await context.newCDPSession(page);
+    const uid = 1;
+    const gesture = async (x: number, y: number, dy: number, hold = 0) => {
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: uid }] });
+      if (hold) await new Promise((resolve) => setTimeout(resolve, hold));
+      for (const fraction of [0.25, 0.5, 0.75, 1]) {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + dy * fraction, id: uid }] });
+      }
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const original = (await grid.boundingBox())!;
+    const x = original.x + original.width / 2;
+    const before = await column.evaluate((element) => element.scrollTop);
+    const visible = (await column.boundingBox())!;
+    await gesture(x, visible.y + 200, -100);
+    await expect.poll(() => column.evaluate((element) => element.scrollTop)).toBeGreaterThan(before);
+    const editor = page.getByTestId('planner-inline-editor');
+    await expect(editor).toHaveCount(0);
+
+    // Start the range-selection check with a fresh timeline to clear swipe momentum.
+    await page.reload();
+    await expect(grid).toBeVisible();
+    await column.evaluate((element) => { element.scrollTop = element.scrollHeight / 3; });
+    const box = (await grid.boundingBox())!;
+    await gesture(x, box.y + box.height * 9 / 24, box.height / 48, 450);
+    await expect(editor.getByLabel('Start', { exact: true })).toHaveValue('09:00');
+    await expect(editor.getByLabel('Duration (minutes)', { exact: true })).toHaveValue('30');
+  } finally {
+    await context.close();
+  }
+});
+
+test('the timeline fits in a compact window and a pending save is in view', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 480 });
+  await page.goto('/planner?date=2041-06-28');
+  const column = page.getByTestId('planner-calendar-column');
+  await expect(column).toBeInViewport({ ratio: 0.2 });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Add block', exact: true }).click();
+  await page.getByLabel('Label', { exact: true }).fill('An unsaved commitment');
+  await page.getByRole('button', { name: 'Apply to draft' }).click();
+  await expect(page.getByTestId('planner-commit-replan')).toBeInViewport({ ratio: 1 });
+  await expect(page.getByText('1 unsaved change')).toBeInViewport({ ratio: 1 });
+});
+
+test('calendar zoom preserves the visible time and the current draft', async ({ page }) => {
+  await page.goto('/planner?date=2041-06-29');
+  await page.getByRole('button', { name: 'Add block', exact: true }).click();
+  await page.getByLabel('Label', { exact: true }).fill('Retain this draft');
+  await page.getByLabel('Start', { exact: true }).fill('13:00');
+  await page.getByRole('button', { name: 'Apply to draft' }).click();
+  const calendar = page.getByTestId('planner-calendar');
+  const column = calendar.getByTestId('planner-calendar-column');
+  const grid = calendar.locator('.sx__time-grid-day');
+  const height = (await grid.boundingBox())!.height;
+  await column.evaluate((element, position) => { element.scrollTop = position; }, height / 2);
+  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect.poll(async () => (await grid.boundingBox())?.height ?? 0).toBeGreaterThan(height);
+  const zoomedHeight = (await grid.boundingBox())!.height;
+  await expect.poll(async () => Math.round(await column.evaluate((element) => element.scrollTop) * 1440 / zoomedHeight)).toBe(720);
+  await expect(calendar.getByRole('button', { name: /^Retain this draft, 13:00 to 14:00,/ })).toBeVisible();
+  await expect(page.getByText('1 unsaved change')).toBeVisible();
+});
+
+test('planner shortcuts create and save a block without hijacking typing', async ({ page, request }) => {
+  const date = '2041-06-30';
+  await page.goto(`/planner?date=${date}`);
+  await expect(page.getByRole('button', { name: 'Add block', exact: true })).toBeEnabled();
+  await page.keyboard.press('c');
+  const editor = page.getByRole('dialog', { name: 'Add block', exact: true });
+  const label = editor.getByLabel('Label', { exact: true });
+  await expect(label).toBeFocused();
+  await page.keyboard.type('calendar shortcut');
+  await expect(label).toHaveValue('calendar shortcut');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  await expect(page.getByText('1 unsaved change')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByText('All changes saved')).toBeVisible();
+  const saved = await (await request.get(`http://127.0.0.1:8010/plan/${date}`)).json();
+  expect(saved.revisions.at(-1).blocks[0].label).toBe('calendar shortcut');
+});
+
+test('inline editing keeps scheduling fields upfront and optional details within reach', async ({ page, request }) => {
+  const date = '2041-07-03';
+  expect((await request.post(`http://127.0.0.1:8010/blocks?date=${date}`, {
+    data: { label: 'Tidy planner', start: '09:00', duration: 60, type: 'focus' },
+  })).ok()).toBe(true);
+  await page.goto(`/planner?date=${date}`);
+  await page.getByRole('button', { name: /^Tidy planner,/ }).press('Enter');
+  const editor = page.getByTestId('planner-inline-editor');
+  await expect(editor.getByLabel('Start', { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Artifact path', { exact: true })).toBeHidden();
+  await editor.getByText('Block details', { exact: true }).click();
+  await editor.getByLabel('Next action', { exact: true }).fill('Review the calendar');
+  await editor.getByRole('button', { name: 'Apply to draft' }).click();
+  await expect(page.getByText('1 unsaved change')).toBeVisible();
+  await page.getByRole('button', { name: /^Tidy planner,/ }).press('Enter');
+  await editor.getByText('Block details', { exact: true }).click();
+  await expect(editor.getByLabel('Next action', { exact: true })).toHaveValue('Review the calendar');
 });
 
 test('calendar and list share a draft, with explicit save and discard', async ({ page, request }) => {

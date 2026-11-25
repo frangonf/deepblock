@@ -68,26 +68,9 @@ export function BlockFields({ form: { values, update }, compact = false }: {
 }) {
   const id = useId();
   const columns = compact ? 'block-fields__row grid min-w-0 gap-3' : 'block-fields__row grid min-w-0 gap-4';
-  return <>
-    <label className="grid min-w-0 gap-2 text-sm text-muted">
-      <span>Label</span>
-      <Input required value={values.label} onChange={(event) => update('label', event.target.value)} />
-    </label>
-    <div className={columns}>
-      <label className="grid min-w-0 gap-2 text-sm text-muted">
-        <span>Start</span>
-        <Input required type="time" value={values.start} onChange={(event) => update('start', event.target.value)} />
-      </label>
-      <label className="grid min-w-0 gap-2 text-sm text-muted">
-        <span>Duration (minutes)</span>
-        {!compact && <small id={`${id}-duration`}>15–480 minutes; must finish before midnight.</small>}
-        <Input required type="number" aria-label="Duration (minutes)" min={compact ? 5 : 15} max={480} aria-describedby={compact ? undefined : `${id}-duration`} value={values.duration} onChange={(event) => update('duration', event.target.value)} />
-      </label>
-    </div>
-    <div className={columns}>
-      <SelectField value={values.type} onChange={(value) => update('type', value as BlockType)} options={typeOptions} label="Type" />
-      <SelectField value={values.status} onChange={(value) => update('status', value as BlockStatus)} options={statusOptions} label="Status" />
-    </div>
+  const status = <SelectField value={values.status} onChange={(value) => update('status', value as BlockStatus)} options={statusOptions} label="Status" />;
+  const details = <>
+    {compact && status}
     <div className={columns}>
       <label className="grid min-w-0 gap-2 text-sm text-muted">
         <span>Focus rating</span>
@@ -105,5 +88,30 @@ export function BlockFields({ form: { values, update }, compact = false }: {
       {!compact && <small>Optional</small>}
       <Textarea aria-label="Next action" className={compact ? 'min-h-20' : undefined} value={values.nextAction} onChange={(event) => update('nextAction', event.target.value)} />
     </label>
+  </>;
+  return <>
+    <label className="grid min-w-0 gap-2 text-sm text-muted">
+      <span>Label</span>
+      <Input required value={values.label} onChange={(event) => update('label', event.target.value)} />
+    </label>
+    <div className={columns}>
+      <label className="grid min-w-0 gap-2 text-sm text-muted">
+        <span>Start</span>
+        <Input required type="time" value={values.start} onChange={(event) => update('start', event.target.value)} />
+      </label>
+      <label className="grid min-w-0 gap-2 text-sm text-muted">
+        <span>Duration (minutes)</span>
+        {!compact && <small id={`${id}-duration`}>15–480 minutes, ending by midnight.</small>}
+        <Input required type="number" aria-label="Duration (minutes)" min={compact ? 5 : 15} max={480} aria-describedby={compact ? undefined : `${id}-duration`} value={values.duration} onChange={(event) => update('duration', event.target.value)} />
+      </label>
+    </div>
+    <div className={columns}>
+      <SelectField value={values.type} onChange={(value) => update('type', value as BlockType)} options={typeOptions} label="Type" />
+      {!compact && status}
+    </div>
+    {compact ? <details className="border-t border-line">
+      <summary className="cursor-pointer py-2 text-sm text-muted">Block details</summary>
+      <div className="grid gap-3 pt-1">{details}</div>
+    </details> : details}
   </>;
 }

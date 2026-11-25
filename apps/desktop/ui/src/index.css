@@ -162,6 +162,11 @@ textarea {
   box-shadow: none;
 }
 
+.planner-calendar .planner-calendar__event-shell--midnight {
+  bottom: 0;
+  height: auto !important;
+}
+
 .planner-calendar .sx__time-grid-event-inner {
   height: 100%;
   padding: 0;
@@ -643,6 +648,13 @@ textarea:disabled {
 .app-header { padding-left: calc(190px + 64px); }
 .planner-save-bar { border-width: 1px 0; border-radius: 0; padding: var(--db-space-4) 0; background: var(--db-canvas); }
 .planner-draft-controls { order: 3; }
+.planner-draft-controls[data-dirty="true"] {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  background: var(--db-canvas);
+  padding-bottom: var(--db-space-2);
+}
 .planner-draft-controls[data-dirty="true"] [role="status"] { color: var(--db-warning); }
 .status-info { background: var(--db-info-surface); }
 .status-danger { background: var(--db-danger-surface); }
@@ -668,14 +680,38 @@ textarea:disabled {
   .app-sidebar { border-right: 0; position: static; padding: 0 0 16px; border-bottom: 1px solid var(--db-line); }
   .app-sidebar .app-brand { margin-bottom: 16px; }
   .app-sidebar nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
-  .planner-draft-controls { position: sticky; bottom: 0; z-index: 10; background: var(--db-canvas); padding-bottom: 12px; }
   .planner-save-bar > div { flex-wrap: wrap; }
 }
 @media (max-width: 580px) {
-  .db-page-title { font-size: 29px; }
+  .app-header { min-height: 44px; padding-block: 0; }
+  .app-workspace { gap: 12px; padding-block: 8px; }
+  .app-sidebar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 0 6px;
+  }
+  .app-sidebar .app-brand { margin: 0; font-size: 0; gap: 0; }
+  .app-sidebar nav { flex-wrap: nowrap; overflow-x: auto; padding: 3px; scrollbar-width: thin; }
+  .app-nav-item { scroll-margin-inline: 3px; }
+  .db-page-title { font-size: 27px; margin-bottom: 8px; }
+  main:has(.planner-workspace) > .db-page-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
   .db-button, .db-tab, .app-nav-item, .db-control, .day-navigation__date { min-height: 44px; }
   .db-control { font-size: 16px; }
   .planner-save-bar > div { width: 100%; justify-content: space-between; }
+  .planner-toolbar { gap: 6px; }
+  .planner-toolbar__revision { display: none; }
+  .planner-day-summary { gap: 5px 11px; }
+  .planner-calendar { row-gap: 8px; }
+  .planner-calendar__hint { display: none; }
   .day-navigation { gap: 0; }
 }
 @media (forced-colors: active) {

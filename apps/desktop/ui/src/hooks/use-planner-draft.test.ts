@@ -50,6 +50,24 @@ describe('planner draft safety', () => {
     expect(result.current.operations).toHaveLength(2);
   });
 
+  it('undoes a whole scheduling gesture after reload without discarding earlier edits', () => {
+    const neighbor = { ...block, id: 'meeting', label: 'Meeting', start: '09:30' };
+    const day = { ...revision, blocks: [block, neighbor] };
+    const first = renderHook(() => usePlannerDraft(date, day, false));
+    act(() => first.result.current.update('work', { label: 'Renamed' }));
+    act(() => first.result.current.updateMany([
+      { blockId: 'work', payload: { duration: 45 } },
+      { blockId: 'meeting', payload: { label: 'Moved meeting' } },
+    ]));
+    expect(first.result.current.blocks[1]).toMatchObject({ label: 'Moved meeting', start: '09:45' });
+    first.unmount();
+
+    const recovered = renderHook(() => usePlannerDraft(date, day, false));
+    act(() => recovered.result.current.undo());
+    expect(recovered.result.current.blocks).toEqual([{ ...block, label: 'Renamed' }, neighbor]);
+    expect(recovered.result.current.operations).toEqual([{ type: 'update', blockId: 'work', payload: { label: 'Renamed' } }]);
+  });
+
   it('rejects a compound move atomically before changing the retained draft', () => {
     const { result } = renderHook(() => usePlannerDraft(date, revision, false));
     expect(() => result.current.updateMany([
