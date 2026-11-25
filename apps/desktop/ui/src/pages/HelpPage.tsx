@@ -2,8 +2,9 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 const steps = [
   ['Plan your day', 'Choose today or a future date. Add blocks with a start time, duration and type. Calendar and list show the same plan.'],
-  ['Save a revised plan', 'Edits stay in a draft until you save. Save revised plan appends a revision and keeps your previous plan. Discard drops only unsaved edits.'],
-  ['Review what changed', 'Choose Show history beside the Calendar and List tabs. In Calendar, scroll left from the current plan to see earlier revisions. Use Compare to inspect changes between two revisions.'],
+  ['Edit on a touchscreen', 'Swipe to scroll. Hold a block before dragging to move it, or hold its lower edge before dragging to resize.'],
+  ['Save a revised plan', 'Save revised plan appends a revision and keeps your previous plan. Open Draft actions to add an optional reason or discard unsaved edits.'],
+  ['Review what changed', 'Choose Show history beside the Calendar and List tabs. In Calendar, scroll left or choose Earlier revision. Choose Current plan to return to the latest revision.'],
   ['Record what happened', 'Edit a block to record a focus rating or attach output. Reality runs today’s local ActivityWatch audit; Review shows findings and how much evidence is available.'],
   ['Capture and reflect', 'Backlog holds unscheduled tasks. Schedule today opens a prefilled block. Notes saves Markdown for the selected day.'],
 ];

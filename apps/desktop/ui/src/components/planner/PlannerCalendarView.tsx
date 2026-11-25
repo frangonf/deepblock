@@ -19,7 +19,7 @@ import {
 import { createCurrentTimePlugin } from "@schedule-x/current-time";
 import { createEventsServicePlugin } from "@schedule-x/events-service";
 import { ScheduleXCalendar, useCalendarApp } from "@schedule-x/react";
-import { Minus, Plus } from "lucide-react";
+import { ChevronLeft, ChevronsRight } from "lucide-react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -47,6 +47,7 @@ import { applyDraftUpdate, type DraftBlockInput } from "@/components/planner/cal
 const dayView = createViewDay();
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const eventWidth = 96;
+const touchHoldMs = 350;
 
 const sharedCalendars = Object.fromEntries(
   typeOptions.map((type) => [
@@ -83,10 +84,9 @@ type InlineEditorAnchor = {
   height: number;
 };
 
-type InlineEditorState = { anchor: InlineEditorAnchor } & (
+type InlineEditorState =
   | { blockId: string }
-  | { initial: DraftBlockInput }
-);
+  | { initial: DraftBlockInput };
 
 type PreviewBlock = Pick<Block, 'id' | 'label' | 'start' | 'duration'>;
 
@@ -223,9 +223,17 @@ function PlannerTimeGridEvent({
   useEffect(() => {
     const event = cardRef.current?.closest<HTMLElement>(".sx__time-grid-event");
     if (!event) return;
-    event.setAttribute("aria-label", accessibleSummary);
     event.setAttribute("title", accessibleSummary);
-  }, [accessibleSummary]);
+    if (calendarEvent.isEditable) {
+      event.setAttribute("aria-label", accessibleSummary);
+      event.setAttribute("role", "button");
+      event.tabIndex = 0;
+    } else {
+      event.removeAttribute("aria-label");
+      event.removeAttribute("role");
+      event.removeAttribute("tabindex");
+    }
+  }, [accessibleSummary, calendarEvent.isEditable]);
 
   return (
     <div
@@ -281,15 +289,15 @@ function RevisionHeader({
           : "border-line bg-surface",
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="truncate text-sm font-semibold text-ink">
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="whitespace-nowrap text-sm font-semibold text-ink">
           Revision {revision.id}
         </span>
         <Badge className={isActive ? "status-info" : undefined}>
           {isActive ? "Current plan" : "history"}
         </Badge>
       </div>
-      <span className="truncate text-xs text-muted">
+      <span className="truncate text-xs text-muted" title={revision.reason ?? undefined}>
         {revision.reason ?? "No reason recorded"}
       </span>
     </div>
@@ -297,7 +305,7 @@ function RevisionHeader({
 }
 
 export function plannerBlockAnchor(
-  anchor: InlineEditorAnchor,
+  anchor: InlineEditorAnchor | null,
   showHistory: boolean,
   panel: { width: number; height: number },
 ) {
@@ -305,6 +313,7 @@ export function plannerBlockAnchor(
     typeof window === "undefined" ? 1280 : window.innerWidth;
   const viewportHeight =
     typeof window === "undefined" ? 900 : window.innerHeight;
+  if (!anchor) return { left: Math.max(16, viewportWidth - panel.width - 16), top: 16 };
   const leftPosition = showHistory
     ? anchor.left - panel.width - 16
     : anchor.left + 24;
@@ -318,7 +327,7 @@ export function plannerBlockAnchor(
 function PlannerInlineEditor({
   block,
   initial,
-  anchor,
+  getAnchor,
   showHistory,
   onSave,
   onDelete,
@@ -326,7 +335,7 @@ function PlannerInlineEditor({
 }: {
   block: Block | null;
   initial?: DraftBlockInput;
-  anchor: InlineEditorAnchor;
+  getAnchor: () => InlineEditorAnchor | null;
   showHistory: boolean;
   onSave: (payload: ReturnType<typeof useBlockForm>['payload']) => void;
   onDelete: () => void;
@@ -334,23 +343,40 @@ function PlannerInlineEditor({
 }) {
   const form = useBlockForm(block, initial);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState({ left: 16, top: 16 });
+  const [placement, setPlacement] = useState({ left: 16, top: 16, docked: false });
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    const update = () => setPosition(plannerBlockAnchor(anchor, showHistory, editor.getBoundingClientRect()));
+    let frame = 0;
+    const update = () => {
+      const anchor = getAnchor();
+      const { left, top } = plannerBlockAnchor(anchor, showHistory, editor.getBoundingClientRect());
+      const docked = anchor === null;
+      setPlacement((current) => current.left === left && current.top === top && current.docked === docked
+        ? current : { left, top, docked });
+    };
+    const onScroll = (event: Event) => {
+      if (frame || (event.target instanceof Node && editor.contains(event.target))) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(editor);
     window.addEventListener('resize', update);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', onScroll, true);
     };
-  }, [anchor, showHistory]);
+  }, [getAnchor, showHistory]);
 
   useEffect(() => {
     const previousFocus =
@@ -392,8 +418,9 @@ function PlannerInlineEditor({
       aria-label={block ? "Edit block" : "Draft block"}
       ref={editorRef}
       data-testid="planner-inline-editor"
+      data-docked={placement.docked}
       className="planner-calendar__inline-editor fixed z-40 rounded-[var(--db-radius)] border border-line bg-surface p-4 shadow-2xl shadow-black/40"
-      style={position}
+      style={{ left: placement.left, top: placement.top }}
     >
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
@@ -541,6 +568,7 @@ type RevisionCalendarColumnProps = {
   selectedDate: string;
   config?: ClientConfig;
   isEditable: boolean;
+  isHistory?: boolean;
   showCurrentTimeLine: boolean;
   showHistory?: boolean;
   scrollPositions?: RefObject<Map<string, number>>;
@@ -584,6 +612,7 @@ function RevisionCalendarRuntime({
   selectedDate,
   config,
   isEditable,
+  isHistory = false,
   showCurrentTimeLine,
   showHistory = false,
   scrollPositions,
@@ -622,6 +651,33 @@ function RevisionCalendarRuntime({
     [editorState, revision.blocks],
   );
   const editingInitial = editorState && 'initial' in editorState ? editorState.initial : undefined;
+
+  const getEditorAnchor = useCallback(() => {
+    const column = columnRef.current;
+    if (!editorState || !column) return null;
+
+    let anchor: InlineEditorAnchor;
+    if ("blockId" in editorState) {
+      const element = findBlockElement(surfaceRef.current, editorState.blockId);
+      if (!element) return null;
+      anchor = elementAnchor(element);
+    } else {
+      const day = column.querySelector('.sx__time-grid-day');
+      if (!day) return null;
+      const startMinutes = parseTime(editorState.initial.start);
+      anchor = selectionAnchor({ dayRect: day.getBoundingClientRect(), startMinutes, endMinutes: startMinutes + editorState.initial.duration, startBoundary, endBoundary });
+    }
+
+    const right = anchor.left + anchor.width;
+    const bottom = anchor.top + anchor.height;
+    if (right <= 0 || bottom <= 0 || anchor.left >= window.innerWidth || anchor.top >= window.innerHeight) return null;
+    for (const clip of [column, column.closest('.planner-workspace__body'), column.closest('.planner-calendar__revision-strip')]) {
+      if (!clip) continue;
+      const rect = clip.getBoundingClientRect();
+      if (right <= rect.left || anchor.left >= rect.right || bottom <= rect.top || anchor.top >= rect.bottom) return null;
+    }
+    return anchor;
+  }, [editorState, startBoundary, endBoundary]);
 
   const eventsServicePlugin = useMemo(() => createEventsServicePlugin(), []);
 
@@ -742,7 +798,7 @@ function RevisionCalendarRuntime({
     drag.clientY = event.clientY;
     if (!drag.active) {
       if (Math.abs(event.clientY - drag.originY) < 4) return;
-      if (drag.kind === 'create' && drag.touchStarted !== undefined && event.timeStamp - drag.touchStarted < 350) return;
+      if (drag.touchStarted !== undefined && event.timeStamp - drag.touchStarted < touchHoldMs) return;
       drag.active = true;
       event.currentTarget.setPointerCapture(event.pointerId);
     }
@@ -768,13 +824,7 @@ function RevisionCalendarRuntime({
     drag.clientY = event.clientY;
     const timing = dragTiming(drag, drag.active ? dragOffset(drag, event.currentTarget) : 0);
     if (drag.kind === 'create') {
-      const grid = event.currentTarget.querySelector('.sx__time-grid-day');
-      if (!grid || !onDraftCreate) return;
-      const startMinutes = parseTime(timing.start);
-      setEditorState({
-        initial: { ...timing, label: '', type: config?.default_type ?? 'focus' },
-        anchor: selectionAnchor({ dayRect: grid.getBoundingClientRect(), startMinutes, endMinutes: startMinutes + timing.duration, startBoundary, endBoundary }),
-      });
+      if (onDraftCreate) setEditorState({ initial: { ...timing, label: '', type: config?.default_type ?? 'focus' } });
       return;
     }
     if (!drag.active || !onDraftUpdate) return;
@@ -795,7 +845,7 @@ function RevisionCalendarRuntime({
     const column = columnRef.current;
     const preventPanDuringLongPress = (event: TouchEvent) => {
       const drag = blockDrag.current;
-      if (drag?.kind === 'create' && drag.touchStarted !== undefined && event.timeStamp - drag.touchStarted >= 350 && event.cancelable) {
+      if (drag?.touchStarted !== undefined && event.timeStamp - drag.touchStarted >= touchHoldMs && event.cancelable) {
         event.preventDefault();
       }
     };
@@ -838,8 +888,7 @@ function RevisionCalendarRuntime({
 
   const openEditor = useCallback(
     (blockId: string) => {
-      const fallbackElement = findBlockElement(surfaceRef.current, blockId);
-      if (fallbackElement) setEditorState({ blockId, anchor: elementAnchor(fallbackElement) });
+      if (findBlockElement(surfaceRef.current, blockId)) setEditorState({ blockId });
     },
     [],
   );
@@ -902,6 +951,10 @@ function RevisionCalendarRuntime({
     let frame = 0;
     let aligned = false;
     const syncGrid = () => {
+      if (isHistory) {
+        const view = column.querySelector<HTMLElement>('.sx__view-container');
+        if (view) view.tabIndex = -1;
+      }
       // Schedule-X mounts its grid after the React adapter. Style its built-in
       // labels once the grid is present, and wait for scrollable content before
       // aligning the active day to the current hour.
@@ -966,6 +1019,7 @@ function RevisionCalendarRuntime({
     };
   }, [
     calendarApp,
+    isHistory,
     selectedDate,
     startBoundary,
     endBoundary,
@@ -999,6 +1053,7 @@ function RevisionCalendarRuntime({
         ref={columnRef}
         className="planner-calendar__column"
         data-testid="planner-calendar-column"
+        tabIndex={isHistory ? -1 : undefined}
         onPointerDown={startBlockDrag}
         onPointerMove={moveBlockDrag}
         onPointerUp={finishBlockDrag}
@@ -1045,7 +1100,7 @@ function RevisionCalendarRuntime({
           key={editingBlock?.id ?? 'new-block'}
           block={editingBlock}
           initial={editingInitial}
-          anchor={editorState.anchor}
+          getAnchor={getEditorAnchor}
           showHistory={showHistory}
           onSave={(payload) => {
             if (editingBlock) onDraftUpdate?.(editingBlock.id, payload);
@@ -1075,7 +1130,6 @@ export function PlannerCalendarView({
   config,
   scrollPositions,
   gridScale = 1,
-  onGridScaleChange,
   onDraftCreate,
   onDraftUpdate,
   onDraftDelete,
@@ -1091,22 +1145,43 @@ export function PlannerCalendarView({
   config?: ClientConfig;
   scrollPositions?: RefObject<Map<string, number>>;
   gridScale?: number;
-  onGridScaleChange?: (value: number) => void;
   onDraftCreate: (input: DraftBlockInput) => Block;
   onDraftUpdate: (blockId: string, payload: Record<string, unknown>) => void;
   onDraftDelete: (blockId: string) => void;
 }) {
   const stripRef = useRef<HTMLElement>(null);
   const mirroredScrolls = useRef(new WeakMap<HTMLElement, number>());
+  const [historyNavigation, setHistoryNavigation] = useState({ overflow: false, earlier: false, current: false });
   const historyVisible = showHistory && historyRevisions.length > 0;
   const currentRevisionId = currentRevision?.id;
   const showCurrentTimeLine =
     selectedDate === todayString() && Boolean(config?.show_current_time_line ?? true);
 
+  const updateHistoryNavigation = useCallback((strip: HTMLElement) => {
+    const scrollRange = strip.scrollWidth - strip.clientWidth;
+    const next = { overflow: scrollRange > 1, earlier: scrollRange + strip.scrollLeft > 1, current: strip.scrollLeft < -1 };
+    setHistoryNavigation((previous) => previous.overflow === next.overflow && previous.earlier === next.earlier && previous.current === next.current
+      ? previous : next);
+  }, []);
+
   useLayoutEffect(() => {
     const strip = stripRef.current;
-    if (historyVisible && strip) strip.scrollLeft = 0;
-  }, [currentRevisionId, historyVisible, selectedDate]);
+    if (!historyVisible || !strip) return;
+    strip.scrollLeft = 0;
+    updateHistoryNavigation(strip);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => updateHistoryNavigation(strip));
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [currentRevisionId, historyRevisions.length, historyVisible, selectedDate, updateHistoryNavigation]);
+
+  const scrollToEarlierRevision = () => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const left = strip.getBoundingClientRect().left;
+    const earlier = Array.from(strip.children).findLast((column) => column.getBoundingClientRect().left < left - 1);
+    if (earlier) strip.scrollBy({ left: earlier.getBoundingClientRect().left - left });
+  };
 
   const syncColumnScroll = (source: HTMLElement) => {
     const top = source.scrollTop;
@@ -1123,28 +1198,24 @@ export function PlannerCalendarView({
 
   return (
     <div className="planner-calendar grid gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="planner-calendar__hint mr-auto text-xs text-muted">
-          {canEdit
-            ? "Click or drag to plan your day. Edits stay in your draft until saved."
-            : "Earlier intent is preserved in history."}
-        </p>
-        {onGridScaleChange && <div role="group" aria-label="Calendar zoom" className="ml-auto flex items-center gap-1">
-          <Button variant="outline" size="sm" aria-label="Zoom out" title="Zoom out" disabled={gridScale <= 0.5} onClick={() => onGridScaleChange(gridScale - 0.25)}>
-            <Minus aria-hidden="true" className="size-4" />
+      {historyVisible && historyNavigation.overflow && (
+        <div role="group" aria-label="History navigation" className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" size="sm" disabled={!historyNavigation.earlier} onClick={scrollToEarlierRevision}>
+            <ChevronLeft aria-hidden="true" className="size-4" />
+            Earlier revision
           </Button>
-          <span className="min-w-9 text-center text-xs tabular-nums text-muted">{gridScale * 100}%</span>
-          <Button variant="outline" size="sm" aria-label="Zoom in" title="Zoom in" disabled={gridScale >= 2} onClick={() => onGridScaleChange(gridScale + 0.25)}>
-            <Plus aria-hidden="true" className="size-4" />
+          <Button variant="outline" size="sm" disabled={!historyNavigation.current} onClick={() => stripRef.current?.scrollTo({ left: 0 })}>
+            Current plan
+            <ChevronsRight aria-hidden="true" className="size-4" />
           </Button>
-        </div>}
-      </div>
-
+        </div>
+      )}
       <section
         ref={stripRef}
         aria-label={historyVisible ? "Plan revisions" : undefined}
         tabIndex={historyVisible ? 0 : undefined}
         className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
+        onScroll={historyVisible ? (event) => updateHistoryNavigation(event.currentTarget) : undefined}
         onKeyDown={(event) => {
           if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
           event.preventDefault();
@@ -1166,6 +1237,7 @@ export function PlannerCalendarView({
               scrollPositions={scrollPositions}
               gridScale={gridScale}
               isEditable={false}
+              isHistory
               showCurrentTimeLine={false}
               onColumnScroll={syncColumnScroll}
             />

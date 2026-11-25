@@ -8,7 +8,8 @@ Calendar and list views edit the same per-day draft. Adding, editing, deleting,
 reordering, dragging, and resizing blocks never save the plan implicitly.
 **Apply to draft** closes the block editor; **Save revised plan** commits the
 first plan into an untouched bootstrap A, then appends one revision per later
-save. An optional reason stays with the retained, date-scoped draft.
+save. **Draft actions** contains the optional reason and **Discard changes**.
+The reason stays with the retained, date-scoped draft.
 **Undo edit** reverses the last draft action, including all blocks displaced by
 one move or resize. **Discard changes** restores the saved plan. Existing history
 is not renumbered. Compare defaults to the first nonempty revision while leaving
@@ -19,18 +20,20 @@ plan, or discarding them. Editing freezes while a save is in flight. Completion
 clears only the submitted day's draft, even if browser history switches to another
 day before the save finishes.
 
-The compact header keeps date navigation and Add block visible. The active grid
-scrolls within the workspace and opens around the current time for today. Secondary
-revision, undo/redo, and activity refresh actions live under Plan actions.
+The compact header keeps date navigation and Add block together. The active grid
+scrolls within the workspace and opens around the current time for today. Notes,
+saved revision actions, and activity refresh live under **Plan actions**.
 The calendar keeps the visible time when saving, zooming, or returning to a day
-within the Planner. The draft status and Save action stay in reach while editing.
-The zoom buttons change the calendar scale for the current Planner session.
+within the Planner. The draft status and Save action have a dedicated row below
+the workspace. The zoom buttons beside the view tabs change the calendar scale
+for the current Planner session.
 **Show history** sits beside the Calendar and List tabs and stays open when
 switching views. Calendar shows read-only revisions from oldest to newest,
 with the current plan on the right. The view opens on the current plan, and
-you can scroll left to see earlier revisions. The columns share the same hours,
-vertical scroll, and zoom. With the revision area focused, Escape closes
-history and returns focus to the toggle.
+you can scroll left to see earlier revisions. When the columns overflow,
+**Earlier revision** and **Current plan** move between them. The columns share
+the same hours, vertical scroll, and zoom. With the revision area focused, use
+the arrow keys to scroll or Escape to close history and return to the toggle.
 If the day has no earlier saved revisions, the planner says so. Artifact links
 remain saved-block metadata: save or discard draft changes before managing them.
 Today and future days support draft editing and saving. Past days remain read-only.
@@ -43,9 +46,9 @@ secure-context-only UUID API is unavailable.
 
 Dragging or resizing a block previews where it and affected blocks will land.
 Scrolling during a drag keeps the selection aligned with the time under the
-pointer. On touch screens, swipe the empty grid to scroll or hold briefly before
-dragging out a new block. Existing blocks can be moved by dragging them and
-resized using their lower edge. Releasing a move or resize stages the change
+pointer. On touch screens, swipe over the grid or a block to scroll. Hold briefly
+before dragging to create or move a block, or hold its lower edge before
+dragging to resize. Releasing a move or resize stages the change
 without opening the editor. A newly selected interval becomes a draft block
 when the editor is applied. Moves and resizes ripple overlapping live blocks.
 Preview and server both order
@@ -61,9 +64,10 @@ and **Block details** expands the remaining fields. Field pairs follow the actua
 form width rather than a window breakpoint; controls shrink and action buttons
 wrap without horizontal scrolling. Placement uses the rendered editor dimensions,
 and vertical scrolling is retained only when needed to fit the viewport. The
-editor repositions on viewport resize. Invalid edits remain open with their field
-values and a message. Escape closes the editor and a click outside dismisses a
-clean editor.
+editor follows its block while scrolling or resizing. If the block leaves the
+visible grid, the editor docks at the viewport edge and keeps the typed fields.
+Invalid edits remain open with their field values and a message. Escape closes
+the editor and a click outside dismisses a clean editor.
 Tauri windows can shrink to 480 × 480 logical pixels and use the shared compact
 navigation and horizontally scrollable revision columns.
 

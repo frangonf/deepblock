@@ -137,7 +137,7 @@ Add an accent bundle by supplying its resting, hovered, and pressed action fills
 
 Inter 4.1 is bundled locally under [public/fonts](../apps/desktop/ui/public/fonts/) with its SIL Open Font License. It does not require a Google Fonts connection. Georgia uses the installed system font with a serif fallback. Desktop application icons and the browser favicon remain fixed identity assets; changing an application theme does not regenerate those assets.
 
-The React planner continues to use its configured day range, snapping, and revision API. Its history previews remain read-only, move to the right on wide screens, and open in a focus-contained drawer at or below 820px. Unsaved calendar blocks carry dashed warning edges and accessible state labels. Failed revision saves show a persistent error while retaining the draft and optional reason. Existing notes autosave, review, backlog, settings, and audit behavior remain governed by their feature documentation. The prototype focus timer and extra keyboard shortcuts are not added by this visual implementation.
+The React planner uses its configured day range, snapping, and revision API. Read-only history columns sit to the left of the current plan and share its time scale. Unsaved calendar blocks carry dashed warning edges and accessible state labels. Failed revision saves show a persistent error while retaining the draft and optional reason. Notes, review, backlog, settings, and audit behavior follow their feature documentation.
 
 ## Typography
 
@@ -177,7 +177,7 @@ The prototype's 09:00–18:00 range and 240-minute editor maximum are sample con
 
 Keep the schedule scrollbar thin and muted: approximately 6px, transparent track, rounded thumb, and a modest hover change. Preserve visible scroll affordance and keyboard scrolling. Reserve gutter space to avoid content shifting.
 
-Keep revision history optional. The history button reveals aligned, read-only calendar columns beside the current plan. Allow horizontal scrolling when the columns outgrow the window, and keep the save and status bar visible. Layout and typography must work at 200% zoom without hiding essential actions.
+Keep revision history optional. The history button reveals aligned, read-only calendar columns beside the current plan. Offer horizontal navigation when the columns outgrow the window. Reserve space for Save and draft status below the scrollable workspace. Layout and typography must work at 200% zoom without hiding essential actions.
 
 ## Component contracts
 

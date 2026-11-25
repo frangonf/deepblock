@@ -171,7 +171,7 @@ describe('PlannerCalendarView', () => {
 
       expect(screen.queryByRole('region', { name: 'Plan revisions' })).not.toBeInTheDocument();
       expect(screen.getByText('All changes saved')).toBeInTheDocument();
-      expect(screen.getByTestId('planner-discard-draft')).toBeDisabled();
+      expect(screen.queryByTestId('planner-discard-draft')).not.toBeInTheDocument();
       expect(screen.getByTestId('planner-commit-replan')).toBeDisabled();
     });
   });

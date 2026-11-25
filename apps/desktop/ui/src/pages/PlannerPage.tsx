@@ -11,9 +11,11 @@ import {
 } from "@tanstack/react-query";
 import {
   CalendarDays,
+  Ellipsis,
   Eye,
   EyeOff,
   LayoutGrid,
+  Minus,
   NotebookTabs,
   Plus,
   RotateCcw,
@@ -48,7 +50,6 @@ import {
 import { PlannerCalendarView } from "@/components/planner/PlannerCalendarView";
 import { PlannerDraftControls } from "@/components/planner/PlannerDraftControls";
 import { PlannerListView } from "@/components/planner/PlannerListView";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -361,134 +362,254 @@ export function PlannerPage() {
   };
 
   return (
-    <div className="planner-workspace grid gap-3" data-testid="planner-workspace">
-      <div className="planner-toolbar">
-        <div className="flex flex-wrap items-center gap-2">
-          <DayNavigation
-            date={selectedDate}
-            onChange={setSelectedDate}
-            disabled={isCommittingDraft}
-          />
-          {activeRevision ? (
-            <Badge className="planner-toolbar__revision">Active revision {activeRevision.id}</Badge>
-          ) : null}
+    <div className="planner-workspace" data-testid="planner-workspace">
+      <div className="planner-workspace__body">
+        <div className="planner-toolbar">
+          <div className="flex flex-wrap items-center gap-2">
+            <DayNavigation
+              date={selectedDate}
+              onChange={setSelectedDate}
+              disabled={isCommittingDraft}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              aria-keyshortcuts="C"
+              onClick={addBlock}
+              disabled={!canEdit || isCommittingDraft || !activeRevision}
+            >
+              <Plus className="h-4 w-4" />
+              Add block
+            </Button>
+            <details>
+              <summary aria-label="Plan actions" title="Plan actions" className="planner-toolbar__actions db-button inline-flex cursor-pointer items-center gap-2 rounded-[var(--db-radius)] border border-line px-3 py-1.5 text-sm text-muted">
+                <Ellipsis aria-hidden="true" className="size-4" />
+                <span className="planner-toolbar__actions-label">Plan actions</span>
+              </summary>
+              <div className="planner-toolbar__menu absolute top-full right-0 z-20 mt-2 grid w-64 max-w-full grid-cols-1 gap-1 rounded-[var(--db-radius)] border border-line bg-surface p-2 shadow-[0_4px_16px_var(--db-shadow)]">
+                <Button asChild variant="ghost" size="sm">
+                  <Link to={`/notes?date=${selectedDate}`}>
+                    <NotebookTabs className="h-4 w-4" />
+                    Notes
+                  </Link>
+                </Button>
+                {!isToday ? <p className="p-2 text-xs text-muted">These saved-history actions and activity audits are available for today. For future days, edit blocks and save a revised plan.</p> : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsRevisionDialogOpen(true)}
+                  disabled={
+                    !isToday || !plan || isCommittingDraft || isDraftDirty
+                  }
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Revise
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => undoMutation.mutate()}
+                  disabled={
+                    !isToday ||
+                    undoMutation.isPending ||
+                    isCommittingDraft ||
+                    isDraftDirty
+                  }
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Undo saved change
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => redoMutation.mutate()}
+                  disabled={
+                    !isToday ||
+                    redoMutation.isPending ||
+                    isCommittingDraft ||
+                    isDraftDirty
+                  }
+                >
+                  <RotateCw className="h-4 w-4" />
+                  Redo saved change
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => auditMutation.mutate()}
+                  disabled={
+                    !isToday ||
+                    auditMutation.isPending ||
+                    isCommittingDraft ||
+                    isDraftDirty
+                  }
+                >
+                  Refresh observed activity
+                </Button>
+              </div>
+            </details>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            aria-keyshortcuts="C"
-            onClick={addBlock}
-            disabled={!canEdit || isCommittingDraft || !activeRevision}
-          >
-            <Plus className="h-4 w-4" />
-            Add block
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link to={`/notes?date=${selectedDate}`}>
-              <NotebookTabs className="h-4 w-4" />
-              Notes
-            </Link>
-          </Button>
-          <details className="relative">
-            <summary className="cursor-pointer rounded-[var(--db-radius)] border border-line px-3 py-1.5 text-sm text-muted">
-              Plan actions
-            </summary>
-            <div className="absolute right-0 z-20 mt-2 grid w-52 gap-1 rounded-[var(--db-radius)] border border-line bg-surface p-2 shadow-[0_4px_16px_var(--db-shadow)]">
-              {!isToday ? <p className="p-2 text-xs text-muted">These saved-history actions and activity audits are available for today. For future days, edit blocks and save a revised plan.</p> : null}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsRevisionDialogOpen(true)}
-                disabled={
-                  !isToday || !plan || isCommittingDraft || isDraftDirty
+        {activeRevision ? (
+          <div className="planner-day-summary" aria-label="Day summary">
+            <span>
+              {
+                currentDraftBlocks.filter((block) => block.status !== "cancelled")
+                  .length
+              }{" "}
+              blocks
+            </span>
+            <span>
+              {formatMinutes(
+                currentDraftBlocks
+                  .filter((block) => block.status !== "cancelled")
+                  .reduce((total, block) => total + block.duration, 0),
+              )}{" "}
+              planned
+            </span>
+            <span>
+              {formatMinutes(
+                currentDraftBlocks
+                  .filter(
+                    (block) =>
+                      block.type === "focus" && block.status !== "cancelled",
+                  )
+                  .reduce((total, block) => total + block.duration, 0),
+              )}{" "}
+              focus
+            </span>
+            <span>
+              {
+                currentDraftBlocks.filter((block) => block.status === "done")
+                  .length
+              }{" "}
+              completed
+            </span>
+          </div>
+        ) : null}
+        {!canEdit ? (
+          <p className="text-sm text-muted">Past plans are read-only. Choose today or a future date to plan.</p>
+        ) : null}
+
+        {planQuery.isLoading ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-muted">
+              Loading planner...
+            </CardContent>
+          </Card>
+        ) : planQuery.error ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-danger">
+              {planQuery.error.message}
+            </CardContent>
+          </Card>
+        ) : !plan ? null : (
+          <Card className="planner-plan">
+            <CardContent className="p-3">
+              <Tabs
+                value={plannerView}
+                onValueChange={(value) =>
+                  setPlannerView(value as PlannerViewMode)
                 }
               >
-                <Sparkles className="h-4 w-4" />
-                Revise
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => undoMutation.mutate()}
-                disabled={
-                  !isToday ||
-                  undoMutation.isPending ||
-                  isCommittingDraft ||
-                  isDraftDirty
-                }
-              >
-                <RotateCcw className="h-4 w-4" />
-                Undo saved change
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => redoMutation.mutate()}
-                disabled={
-                  !isToday ||
-                  redoMutation.isPending ||
-                  isCommittingDraft ||
-                  isDraftDirty
-                }
-              >
-                <RotateCw className="h-4 w-4" />
-                Redo saved change
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => auditMutation.mutate()}
-                disabled={
-                  !isToday ||
-                  auditMutation.isPending ||
-                  isCommittingDraft ||
-                  isDraftDirty
-                }
-              >
-                Refresh observed activity
-              </Button>
-            </div>
-          </details>
-        </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <TabsList>
+                    <TabsTrigger
+                      value="calendar"
+                      data-testid="planner-view-calendar"
+                    >
+                      <CalendarDays aria-hidden="true" className="hidden h-4 w-4 sm:block" />
+                      Calendar
+                    </TabsTrigger>
+                    <TabsTrigger value="list" data-testid="planner-view-list">
+                      <LayoutGrid aria-hidden="true" className="hidden h-4 w-4 sm:block" />
+                      List
+                    </TabsTrigger>
+                  </TabsList>
+                  <Button
+                  className="planner-view-history"
+                    ref={historyTrigger}
+                    variant="outline"
+                    size="sm"
+                    aria-expanded={showHistory}
+                    onClick={() => setShowHistory((current) => !current)}
+                  >
+                    {showHistory ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
+                    {showHistory ? "Hide history" : "Show history"}
+                  </Button>
+                  {plannerView === "calendar" && (
+                  <div role="group" aria-label="Calendar zoom" className="planner-zoom ml-auto flex items-center gap-1">
+                      <Button variant="outline" size="sm" aria-label="Zoom out" title="Zoom out" disabled={calendarScale <= 0.5} onClick={() => setCalendarScale(calendarScale - 0.25)}>
+                        <Minus aria-hidden="true" className="size-4" />
+                      </Button>
+                    <span className="min-w-9 text-center text-xs tabular-nums text-muted max-[440px]:sr-only">{calendarScale * 100}%</span>
+                      <Button variant="outline" size="sm" aria-label="Zoom in" title="Zoom in" disabled={calendarScale >= 2} onClick={() => setCalendarScale(calendarScale + 0.25)}>
+                        <Plus aria-hidden="true" className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {showHistory && historyRevisions.length === 0 && (
+                  <p role="status" className="mt-3 text-sm text-muted">No earlier saved revisions for this day.</p>
+                )}
+
+                <TabsContent value="calendar">
+                  <PlannerCalendarView
+                    historyRevisions={historyRevisions}
+                    showHistory={showHistory}
+                    onCloseHistory={() => {
+                      setShowHistory(false);
+                      historyTrigger.current?.focus();
+                    }}
+                    selectedDate={selectedDate}
+                    currentRevision={currentCalendarRevision}
+                    savedRevision={activeRevision ?? undefined}
+                    canEdit={canEdit}
+                    isCommittingDraft={isCommittingDraft}
+                    config={configQuery.data}
+                    scrollPositions={calendarScroll}
+                    gridScale={calendarScale}
+                    onDraftCreate={stageDraftCreate}
+                    onDraftUpdate={draft.update}
+                    onDraftDelete={stageDraftDelete}
+                  />
+                </TabsContent>
+
+                <TabsContent value="list">
+                  <PlannerListView
+                    showHistory={showHistory}
+                    revisions={plan.revisions.map((revision) =>
+                      revision.id === activeRevision?.id &&
+                      currentCalendarRevision
+                        ? currentCalendarRevision
+                        : revision,
+                    )}
+                    activeRevisionId={activeRevision?.id ?? null}
+                    canEdit={canEdit && !isCommittingDraft}
+                    onEditBlock={openEditBlockDialog}
+                    canManageArtifacts={canEdit && !isDraftDirty && !isCommittingDraft}
+                    onOpenArtifacts={setArtifactBlock}
+                    onDeleteBlock={stageDraftDelete}
+                    onStatusChange={(blockId, status) =>
+                      stageDraftUpdate(blockId, { status })
+                    }
+                    onMoveBlock={stageMove}
+                    onRepositionBlock={async (blockId, start) => {
+                      stageDraftUpdate(blockId, { start });
+                    }}
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        )}
+
+        <PlannerContext blocks={currentDraftBlocks} onUpdate={stageDraftUpdate} disabled={!canEdit || isCommittingDraft} />
       </div>
-      {activeRevision ? (
-        <div className="planner-day-summary" aria-label="Day summary">
-          <span>
-            {
-              currentDraftBlocks.filter((block) => block.status !== "cancelled")
-                .length
-            }{" "}
-            blocks
-          </span>
-          <span>
-            {formatMinutes(
-              currentDraftBlocks
-                .filter((block) => block.status !== "cancelled")
-                .reduce((total, block) => total + block.duration, 0),
-            )}{" "}
-            planned
-          </span>
-          <span>
-            {formatMinutes(
-              currentDraftBlocks
-                .filter(
-                  (block) =>
-                    block.type === "focus" && block.status !== "cancelled",
-                )
-                .reduce((total, block) => total + block.duration, 0),
-            )}{" "}
-            focus
-          </span>
-          <span>
-            {
-              currentDraftBlocks.filter((block) => block.status === "done")
-                .length
-            }{" "}
-            completed
-          </span>
-        </div>
-      ) : null}
-      {canEdit && activeRevision ? (
+
+      {canEdit && activeRevision && (
         <PlannerDraftControls
           dirty={isDraftDirty}
           saving={isCommittingDraft}
@@ -512,114 +633,7 @@ export function PlannerPage() {
             }
           }}
         />
-      ) : !canEdit ? (
-        <p className="text-sm text-muted">Past plans are read-only. Choose today or a future date to plan.</p>
-      ) : null}
-
-      {planQuery.isLoading ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted">
-            Loading planner...
-          </CardContent>
-        </Card>
-      ) : planQuery.error ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-danger">
-            {planQuery.error.message}
-          </CardContent>
-        </Card>
-      ) : !plan ? null : (
-        <Card className="planner-plan">
-          <CardContent className="p-3">
-            <Tabs
-              value={plannerView}
-              onValueChange={(value) =>
-                setPlannerView(value as PlannerViewMode)
-              }
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <TabsList>
-                  <TabsTrigger
-                    value="calendar"
-                    data-testid="planner-view-calendar"
-                  >
-                    <CalendarDays className="h-4 w-4" />
-                    Calendar
-                  </TabsTrigger>
-                  <TabsTrigger value="list" data-testid="planner-view-list">
-                    <LayoutGrid className="h-4 w-4" />
-                    List
-                  </TabsTrigger>
-                </TabsList>
-                <Button
-                  ref={historyTrigger}
-                  variant="outline"
-                  size="sm"
-                  aria-expanded={showHistory}
-                  onClick={() => setShowHistory((current) => !current)}
-                >
-                  {showHistory ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
-                  {showHistory ? "Hide history" : "Show history"}
-                </Button>
-              </div>
-
-              {showHistory && historyRevisions.length === 0 && (
-                <p role="status" className="mt-3 text-sm text-muted">No earlier saved revisions for this day.</p>
-              )}
-
-              <TabsContent value="calendar">
-                <PlannerCalendarView
-                  historyRevisions={historyRevisions}
-                  showHistory={showHistory}
-                  onCloseHistory={() => {
-                    setShowHistory(false);
-                    historyTrigger.current?.focus();
-                  }}
-                  selectedDate={selectedDate}
-                  currentRevision={currentCalendarRevision}
-                  savedRevision={activeRevision ?? undefined}
-                  canEdit={canEdit}
-                  isCommittingDraft={isCommittingDraft}
-                  config={configQuery.data}
-                  scrollPositions={calendarScroll}
-                  gridScale={calendarScale}
-                  onGridScaleChange={setCalendarScale}
-                  onDraftCreate={stageDraftCreate}
-                  onDraftUpdate={draft.update}
-                  onDraftDelete={stageDraftDelete}
-                />
-              </TabsContent>
-
-              <TabsContent value="list">
-                <PlannerListView
-                  showHistory={showHistory}
-                  revisions={plan.revisions.map((revision) =>
-                    revision.id === activeRevision?.id &&
-                    currentCalendarRevision
-                      ? currentCalendarRevision
-                      : revision,
-                  )}
-                  activeRevisionId={activeRevision?.id ?? null}
-                  canEdit={canEdit && !isCommittingDraft}
-                  onEditBlock={openEditBlockDialog}
-                  canManageArtifacts={canEdit && !isDraftDirty && !isCommittingDraft}
-                  onOpenArtifacts={setArtifactBlock}
-                  onDeleteBlock={stageDraftDelete}
-                  onStatusChange={(blockId, status) =>
-                    stageDraftUpdate(blockId, { status })
-                  }
-                  onMoveBlock={stageMove}
-                  onRepositionBlock={async (blockId, start) => {
-                    stageDraftUpdate(blockId, { start });
-                  }}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
       )}
-
-      <PlannerContext blocks={currentDraftBlocks} onUpdate={stageDraftUpdate} disabled={!canEdit || isCommittingDraft} />
 
       <BlockDialog
         open={blockDialogOpen}

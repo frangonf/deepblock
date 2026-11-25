@@ -167,7 +167,8 @@ textarea {
 
 .planner-calendar .planner-calendar__event-shell--editable {
   cursor: grab;
-  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .planner-calendar .planner-calendar__event-shell--readonly {
@@ -209,6 +210,7 @@ textarea {
 
 .planner-calendar .sx__time-grid-event-resize-handle {
   width: 100%;
+  touch-action: auto;
 }
 
 .planner-calendar .sx__time-grid-event-resize-handle::after {
@@ -313,23 +315,14 @@ textarea {
   outline-offset: 3px;
 }
 .planner-toolbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.planner-save-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--db-line);
-  border-radius: var(--db-radius-control);
-  background: var(--db-surface);
-}
+.planner-toolbar__menu .db-button { min-width: 0; white-space: normal; }
 .planner-calendar__event-card[data-block-type="focus"] {
   --block-tone: var(--db-focus-block);
 }
@@ -637,15 +630,18 @@ textarea:disabled {
 .app-sidebar { padding-right: var(--db-space-4); border-right: 1px solid var(--db-line); }
 .app-nav-item { font-size: 13px; }
 .app-header { padding-left: calc(190px + 64px); }
-.planner-save-bar { border-width: 1px 0; border-radius: 0; padding: var(--db-space-4) 0; background: var(--db-canvas); }
-.planner-draft-controls { order: 3; }
-.planner-draft-controls[data-dirty="true"] {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
+.planner-draft-controls { display: grid; gap: 8px; }
+.planner-save-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--db-line);
   background: var(--db-canvas);
-  padding-bottom: var(--db-space-2);
 }
+.planner-save-bar__status { flex: 1; min-width: 0; }
+.planner-save-bar__short-label { display: none; }
+.planner-save-bar__details { width: min(19rem, calc(100vw - 24px)); }
 .planner-draft-controls[data-dirty="true"] [role="status"] { color: var(--db-warning); }
 .status-info { background: var(--db-info-surface); }
 .status-danger { background: var(--db-danger-surface); }
@@ -670,7 +666,6 @@ textarea:disabled {
   .app-sidebar { border-right: 0; position: static; padding: 0 0 16px; border-bottom: 1px solid var(--db-line); }
   .app-sidebar .app-brand { margin-bottom: 16px; }
   .app-sidebar nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
-  .planner-save-bar > div { flex-wrap: wrap; }
 }
 @media (max-width: 580px) {
   .app-header { min-height: 44px; padding-block: 0; }
@@ -687,22 +682,20 @@ textarea:disabled {
   .app-sidebar nav { flex-wrap: nowrap; overflow-x: auto; padding: 3px; scrollbar-width: thin; }
   .app-nav-item { scroll-margin-inline: 3px; }
   .db-page-title { font-size: 27px; margin-bottom: 8px; }
-  main:has(.planner-workspace) > .db-page-title {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
   .db-button, .db-tab, .app-nav-item, .db-control, .day-navigation__date { min-height: 44px; }
   .db-control { font-size: 16px; }
-  .planner-save-bar > div { width: 100%; justify-content: space-between; }
-  .planner-toolbar { gap: 6px; }
-  .planner-toolbar__revision { display: none; }
+  .planner-save-bar__wide-label { display: none; }
+  .planner-save-bar__short-label { display: inline; }
+  .planner-save-bar .db-button,
+  .planner-toolbar__actions,
+  .planner-zoom .db-button { min-width: 44px; justify-content: center; }
   .planner-day-summary { gap: 5px 11px; }
   .planner-calendar { row-gap: 8px; }
-  .planner-calendar__hint { display: none; }
   .day-navigation { gap: 0; }
+}
+
+@media (max-width: 440px) {
+  .planner-view-history > svg { display: none; }
 }
 @media (forced-colors: active) {
   .app-brand-mark { background: CanvasText; }
@@ -714,6 +707,59 @@ textarea:disabled {
 
 .planner-plan { border: 0; background: var(--db-canvas); box-shadow: none; }
 .planner-plan > div { padding: 0; }
+
+.app-shell:has(.planner-workspace) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+}
+
+.app-shell:has(.planner-workspace) .app-header { min-height: 44px; padding-block: 0; }
+.app-workspace:has(.planner-workspace) { min-height: 0; padding-block: 12px 8px; }
+.app-workspace:has(.planner-workspace) > main { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.app-workspace:has(.planner-workspace) .db-page-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.planner-workspace { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
+.planner-workspace__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  padding: 3px;
+}
+
+@media (max-width: 820px) {
+  .app-workspace:has(.planner-workspace) { grid-template-rows: auto minmax(0, 1fr); padding-block: 6px; gap: 6px; }
+  .app-workspace:has(.planner-workspace) .app-sidebar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 0 4px;
+  }
+  .app-workspace:has(.planner-workspace) .app-brand { margin: 0; font-size: 0; gap: 0; }
+  .app-workspace:has(.planner-workspace) .app-sidebar nav { flex-wrap: nowrap; overflow-x: auto; padding: 3px; }
+  .app-workspace:has(.planner-workspace) .app-nav-item { flex-shrink: 0; }
+  .planner-toolbar { gap: 6px; }
+  .planner-toolbar__actions-label { display: none; }
+  .planner-toolbar .day-navigation label > svg { display: none; }
+}
+
+@media (max-height: 600px) {
+  .planner-workspace__body > .planner-day-summary { order: 1; }
+}
 
 /* Keep the calendar library's internal controls inside the same theme boundary. */
 .planner-calendar .sx__calendar-wrapper {
