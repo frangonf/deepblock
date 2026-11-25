@@ -380,14 +380,18 @@ textarea {
 }
 
 .planner-calendar__revision-strip {
+  /* The current plan sits at the scroll origin on the right. */
+  direction: rtl;
   grid-auto-flow: column;
-  grid-template-rows: auto auto;
-  grid-template-columns: repeat(var(--planner-history-count), minmax(15rem, 1fr)) minmax(min(100%, 24rem), 1.5fr);
+  grid-template: auto auto / minmax(min(100%, 24rem), 1.5fr);
+  grid-auto-columns: minmax(15rem, 1fr);
   gap: 0.75rem;
   overflow-x: auto;
 }
 
 .planner-calendar__revision-strip > .planner-calendar__revision {
+  direction: ltr;
+  grid-column: 1;
   grid-row: span 2;
   grid-template-rows: subgrid;
 }

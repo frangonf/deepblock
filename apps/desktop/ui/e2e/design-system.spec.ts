@@ -214,7 +214,10 @@ test('narrow history opens on the current column and scrolls left to earlier rev
   await expect(strip).toBeVisible();
   await expect(strip.getByText(firstIntent)).toBeVisible();
   const currentHeader = page.getByTestId('planner-calendar').getByTestId('calendar-resource-header');
-  const gapFromRight = () => strip.evaluate((element) => element.scrollWidth - element.clientWidth - element.scrollLeft);
+  const gapFromRight = () => currentHeader.evaluate((header) => {
+    const strip = header.closest('[aria-label="Plan revisions"]')!;
+    return header.getBoundingClientRect().right - strip.getBoundingClientRect().right;
+  });
   await expect.poll(gapFromRight, { timeout: 5000 }).toBeLessThanOrEqual(1);
   await expect(currentHeader).toBeInViewport({ ratio: 0.99 });
   await page.setViewportSize({ width: 480, height: 844 });

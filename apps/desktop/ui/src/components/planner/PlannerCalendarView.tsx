@@ -1105,20 +1105,7 @@ export function PlannerCalendarView({
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
-    if (!historyVisible || !strip) return;
-
-    let rightEdge = strip.scrollWidth - strip.clientWidth;
-    strip.scrollLeft = rightEdge;
-    const keepCurrentInView = () => {
-      const nextRightEdge = strip.scrollWidth - strip.clientWidth;
-      // Keep the current plan in view on resize if the user is still at the right edge.
-      if (Math.abs(strip.scrollLeft - Math.min(rightEdge, nextRightEdge)) <= 1) {
-        strip.scrollLeft = nextRightEdge;
-      }
-      rightEdge = nextRightEdge;
-    };
-    window.addEventListener("resize", keepCurrentInView);
-    return () => window.removeEventListener("resize", keepCurrentInView);
+    if (historyVisible && strip) strip.scrollLeft = 0;
   }, [currentRevisionId, historyVisible, selectedDate]);
 
   const syncColumnScroll = (source: HTMLElement) => {
@@ -1158,15 +1145,19 @@ export function PlannerCalendarView({
         aria-label={historyVisible ? "Plan revisions" : undefined}
         tabIndex={historyVisible ? 0 : undefined}
         className={cn("grid min-w-0", historyVisible && "planner-calendar__revision-strip")}
-        style={historyVisible ? { "--planner-history-count": historyRevisions.length } as CSSProperties : undefined}
         onKeyDown={(event) => {
           if (!historyVisible || event.key !== "Escape" || event.target !== event.currentTarget) return;
           event.preventDefault();
           onCloseHistory();
         }}
       >
-        {historyVisible && historyRevisions.map((revision) => (
-          <section key={revision.id} aria-label={`Revision ${revision.id}`} className="planner-calendar__revision grid min-w-0 gap-3">
+        {historyVisible && historyRevisions.map((revision, index) => (
+          <section
+            key={revision.id}
+            aria-label={`Revision ${revision.id}`}
+            className="planner-calendar__revision grid min-w-0 gap-3"
+            style={{ gridColumn: historyRevisions.length - index + 1 }}
+          >
             <RevisionHeader revision={revision} isActive={false} />
             <RevisionCalendarColumn
               revision={revision}
